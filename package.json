@@ -1,0 +1,13 @@
+{
+  "name": "gov-contract-finder",
+  "private": true,
+  "workspaces": [
+    "apps/web"
+  ],
+  "scripts": {
+    "dev:web": "npm --workspace apps/web run dev",
+    "build:web": "npm --workspace apps/web run build",
+    "build:web:wasm": "NEXT_TEST_WASM=1 NEXT_TEST_WASM_DIR=./node_modules/@next/swc-wasm-nodejs npm --workspace apps/web run build",
+    "lint:web": "npm --workspace apps/web run lint"
+  }
+}

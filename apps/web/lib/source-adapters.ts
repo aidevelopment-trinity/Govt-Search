@@ -1,0 +1,1649 @@
+import "server-only";
+
+import { conceptTerms, samSearchUrl } from "@/lib/gov-search";
+import type { ProcurementSource, UnifiedSearchResult } from "@/lib/gov-types";
+
+type SearchFilters = {
+  query: string;
+  state: string;
+  level: string;
+  sources: ProcurementSource[];
+};
+
+type ConnectedSearchResponse = {
+  results: UnifiedSearchResult[];
+  searchedSources: string[];
+  pendingSources: string[];
+  errors: string[];
+  samConfigured: boolean;
+};
+
+type SearchTaskResult = { source: string; results: UnifiedSearchResult[]; error?: string };
+type SamSearchResult = { results: UnifiedSearchResult[]; error?: string };
+type ConnectorSearchResult = { results: UnifiedSearchResult[]; error?: string };
+
+const TEXAS_ESBD_URL = "https://www.txsmartbuy.gov/esbd";
+const TEXAS_ESBD_SERVICE_URL = "https://www.txsmartbuy.gov/app/extensions/CPA/CPAMain/1.0.0/services/ESBD.Service.ss";
+const TEXAS_ESBD_ACTIVE_STATUS = "1";
+const TEXAS_ESBD_NIGP_CODES_BY_CONCEPT: Array<{ terms: string[]; codes: string[] }> = [
+  { terms: ["training", "education", "educational", "learning", "development", "professional"], codes: ["92400", "92416", "92478", "91838"] },
+  { terms: ["leadership", "management", "manager", "supervisor", "executive", "coaching"], codes: ["91838", "91865", "91883", "92416"] },
+  { terms: ["human", "hr", "workforce", "organizational", "organization"], codes: ["91865", "91883", "91838"] },
+];
+const TEXAS_ESBD_DEFAULT_RECENT_PAGES = 3;
+type TexasEsbdAgencySource = {
+  sourceName: string;
+  agencyNumbers: string[];
+  buyer: string;
+};
+const TEXAS_ESBD_AGENCY_SOURCES: TexasEsbdAgencySource[] = [
+  { sourceName: "Texas Health and Human Services Commission Contracting", agencyNumbers: ["529"], buyer: "Health & Human Services Commission" },
+  { sourceName: "Texas Department of Criminal Justice Business and Finance", agencyNumbers: ["696"], buyer: "Texas Department of Criminal Justice" },
+  { sourceName: "Texas Department of Transportation Business", agencyNumbers: ["601"], buyer: "Texas Department of Transportation" },
+  { sourceName: "Texas Workforce Commission Procurement", agencyNumbers: ["320"], buyer: "Texas Workforce Commission" },
+  { sourceName: "Travis County Purchasing", agencyNumbers: ["C2270"], buyer: "Travis County" },
+  { sourceName: "Dallas County Purchasing", agencyNumbers: ["C0570"], buyer: "Dallas County" },
+  { sourceName: "City of San Antonio Procurement", agencyNumbers: ["M0152"], buyer: "City of San Antonio" },
+  { sourceName: "City of Irving Purchasing", agencyNumbers: ["M0570"], buyer: "City of Irving" },
+  { sourceName: "City of Waco Purchasing", agencyNumbers: ["M1612"], buyer: "City of Waco" },
+  { sourceName: "City of Odessa Purchasing", agencyNumbers: ["M0680"], buyer: "City of Odessa" },
+  { sourceName: "Williamson County Purchasing", agencyNumbers: ["C2460"], buyer: "Williamson County" },
+  { sourceName: "City of Georgetown Purchasing", agencyNumbers: ["M2461"], buyer: "City of Georgetown" },
+  { sourceName: "City of Grapevine Purchasing", agencyNumbers: ["M2201"], buyer: "City of Grapevine" },
+  { sourceName: "City of Galveston Purchasing", agencyNumbers: ["M0843"], buyer: "City of Galveston" },
+  { sourceName: "San Antonio International Airport Business", agencyNumbers: ["M0152"], buyer: "City of San Antonio" },
+  { sourceName: "University of Texas System Supplier Information", agencyNumbers: ["720"], buyer: "University Of Texas System" },
+  { sourceName: "Texas A&M University System Doing Business", agencyNumbers: ["711", "715", "751", "555", "556", "712", "716", "576"], buyer: "Texas A&M University System" },
+  { sourceName: "University of Texas at Austin Purchasing", agencyNumbers: ["721"], buyer: "University Of Texas At Austin" },
+  { sourceName: "Texas A&M University Purchasing", agencyNumbers: ["711"], buyer: "Texas A & M University" },
+  { sourceName: "University of Houston Purchasing", agencyNumbers: ["730"], buyer: "University Of Houston" },
+  { sourceName: "Texas Tech University System Procurement", agencyNumbers: ["768", "733", "739", "774"], buyer: "Texas Tech University System" },
+  { sourceName: "Dallas ISD Procurement", agencyNumbers: ["S5573"], buyer: "Dallas ISD" },
+  { sourceName: "Fort Worth ISD Purchasing", agencyNumbers: ["S2209"], buyer: "Fort Worth ISD" },
+  { sourceName: "Alamo Colleges Purchasing", agencyNumbers: ["J0150"], buyer: "Alamo Community College District" },
+  { sourceName: "Austin Community College Purchasing", agencyNumbers: ["J2270"], buyer: "Austin Community College" },
+  { sourceName: "Lone Star College Purchasing", agencyNumbers: ["J1010"], buyer: "Lone Star College System" },
+  { sourceName: "North Central Texas Council of Governments Purchasing", agencyNumbers: ["G2200"], buyer: "North Central Texas Council of Governments" },
+  { sourceName: "Houston-Galveston Area Council Procurement", agencyNumbers: ["G1010"], buyer: "Houston-Galveston Area Council" },
+  { sourceName: "Lower Colorado River Authority Business", agencyNumbers: ["K0042"], buyer: "Lower Colorado River Authority" },
+];
+const TEXAS_ESBD_AGENCY_SOURCE_BY_NAME = new Map(TEXAS_ESBD_AGENCY_SOURCES.map((source) => [source.sourceName, source]));
+const TEXAS_REFERENCE_SOURCE_NAMES = new Set(["Texas Statewide Procurement Division", "Texas Centralized Master Bidders List", "Texas HUB Program"]);
+type BonfireSource = {
+  sourceName: string;
+  buyer: string;
+  portalUrl: string;
+  level: string;
+};
+const TEXAS_BONFIRE_SOURCES: BonfireSource[] = [
+  {
+    sourceName: "City of Dallas Procurement Services",
+    buyer: "City of Dallas",
+    portalUrl: "https://dallascityhall.bonfirehub.com/portal/?tab=openOpportunities",
+    level: "Local",
+  },
+  {
+    sourceName: "Harris County Purchasing",
+    buyer: "Harris County",
+    portalUrl: "https://harriscountytx.bonfirehub.com/portal/?tab=openOpportunities",
+    level: "Local",
+  },
+  {
+    sourceName: "City of Fort Worth Purchasing",
+    buyer: "City of Fort Worth",
+    portalUrl: "https://fortworthtexas.bonfirehub.com/portal/?tab=openOpportunities",
+    level: "Local",
+  },
+  {
+    sourceName: "City of Frisco Purchasing",
+    buyer: "City of Frisco",
+    portalUrl: "https://friscotexas.bonfirehub.com/portal/?tab=openOpportunities",
+    level: "Local",
+  },
+  {
+    sourceName: "City of Round Rock Purchasing",
+    buyer: "City of Round Rock",
+    portalUrl: "https://roundrocktexas.bonfirehub.com/portal/?tab=openOpportunities",
+    level: "Local",
+  },
+  {
+    sourceName: "City of McKinney Purchasing",
+    buyer: "City of McKinney",
+    portalUrl: "https://mckinneytexas.bonfirehub.com/portal/?tab=openOpportunities",
+    level: "Local",
+  },
+  {
+    sourceName: "Denton County Purchasing",
+    buyer: "Denton County",
+    portalUrl: "https://dentoncounty.bonfirehub.com/portal/?tab=openOpportunities",
+    level: "Local",
+  },
+  {
+    sourceName: "City of Midland Purchasing",
+    buyer: "City of Midland",
+    portalUrl: "https://midlandtexas.bonfirehub.com/portal/?tab=openOpportunities",
+    level: "Local",
+  },
+  {
+    sourceName: "Austin ISD Purchasing",
+    buyer: "Austin ISD",
+    portalUrl: "https://austinisd.bonfirehub.com/portal/?tab=openOpportunities",
+    level: "Education",
+  },
+  {
+    sourceName: "DFW Airport Solicitations",
+    buyer: "DFW Airport",
+    portalUrl: "https://dfwairport.bonfirehub.com/portal/?tab=openOpportunities",
+    level: "Adjacent",
+  },
+  {
+    sourceName: "DART Procurement",
+    buyer: "DART",
+    portalUrl: "https://dart.bonfirehub.com/portal/?tab=openOpportunities",
+    level: "Adjacent",
+  },
+];
+const TEXAS_BONFIRE_SOURCE_BY_NAME = new Map(TEXAS_BONFIRE_SOURCES.map((source) => [source.sourceName, source]));
+const TENNESSEE_RFP_URL =
+  "https://www.tn.gov/generalservices/procurement/central-procurement-office--cpo-/supplier-information/request-for-proposals--rfp--opportunities1.html";
+const TENNESSEE_ITB_URL =
+  "https://www.tn.gov/generalservices/procurement/central-procurement-office--cpo-/supplier-information/invitations-to-bid--itb-.html";
+const THE_WOODLANDS_BIDS_URL =
+  "https://www.thewoodlandstownship-tx.gov/Departments/Finance/Purchasing-Procurement/Bids";
+const AUSTIN_SOLICITATIONS_URL = "https://financeonline.austintexas.gov/afo/account_services/solicitation/solicitations.cfm";
+const FRISCO_CURRENT_BIDS_URL = "https://www.friscotexas.gov/883/Current-Bids";
+const HANDLED_SOURCE_NAMES = new Set([
+  "SAM.gov Contract Opportunities",
+  "Texas Electronic State Business Daily",
+  "The Woodlands Township Bids",
+  "City of Austin Purchasing",
+  "City of Frisco Purchasing",
+  "Tennessee RFP Opportunities",
+  "Tennessee ITB Opportunities",
+  ...TEXAS_ESBD_AGENCY_SOURCE_BY_NAME.keys(),
+  ...TEXAS_BONFIRE_SOURCE_BY_NAME.keys(),
+  ...TEXAS_REFERENCE_SOURCE_NAMES,
+]);
+const SAM_SUCCESS_CACHE_MS = 15 * 60 * 1000;
+const SAM_ERROR_CACHE_MS = 2 * 60 * 1000;
+const SAM_RATE_LIMIT_CACHE_MS = 10 * 60 * 1000;
+const SAM_RETRY_DELAYS_MS = [0, 1500, 4000];
+const BONFIRE_SUCCESS_CACHE_MS = 10 * 60 * 1000;
+const BONFIRE_ERROR_CACHE_MS = 90 * 1000;
+const BONFIRE_RATE_LIMIT_CACHE_MS = 5 * 60 * 1000;
+const BONFIRE_QUEUE_GAP_MS = 2500;
+
+const samCache = getGlobalMap<{ expiresAt: number; value: SamSearchResult }>("__govContractFinderSamCache");
+const samInFlight = getGlobalMap<Promise<SamSearchResult>>("__govContractFinderSamInFlight");
+const bonfireCache = getGlobalMap<{ expiresAt: number; value: ConnectorSearchResult }>("__govContractFinderBonfireCache");
+const bonfireInFlight = getGlobalMap<Promise<ConnectorSearchResult>>("__govContractFinderBonfireInFlight");
+const bonfireProjectsCache = getGlobalMap<{ expiresAt: number; projects: BonfireProject[] }>("__govContractFinderBonfireProjectsCache");
+const bonfireProjectsInFlight = getGlobalMap<Promise<ConnectorSearchResult & { projects?: BonfireProject[] }>>(
+  "__govContractFinderBonfireProjectsInFlight",
+);
+
+export async function searchConnectedSources({ query, state, level, sources }: SearchFilters): Promise<ConnectedSearchResponse> {
+  const tasks: Array<() => Promise<SearchTaskResult>> = [];
+  const searchedSources: string[] = [];
+  const pendingSources = sources
+    .filter((source) => matchesFilter({ sourceState: source.state, sourceLevel: source.level, state, level }))
+    .map((source) => source.source_name);
+  const samConfigured = Boolean(process.env.SAM_API_KEY);
+
+  if (matchesFilter({ sourceState: "US", sourceLevel: "Federal", state, level }) && samConfigured) {
+    searchedSources.push("SAM.gov Contract Opportunities");
+    removePending(pendingSources, "SAM.gov Contract Opportunities");
+    removePending(pendingSources, "SAM.gov Get Opportunities API");
+    tasks.push(() => searchSam(query));
+  }
+
+  if (matchesFilter({ sourceState: "TX", sourceLevel: "State", state, level })) {
+    searchedSources.push("Texas Electronic State Business Daily");
+    removePending(pendingSources, "Texas Electronic State Business Daily");
+    tasks.push(() => searchTexasEsbd(query));
+
+  }
+
+  if (matchesFilter({ sourceState: "TN", sourceLevel: "State", state, level })) {
+    searchedSources.push("Tennessee RFP Opportunities");
+    searchedSources.push("Tennessee ITB Opportunities");
+    removePending(pendingSources, "Tennessee RFP Opportunities");
+    removePending(pendingSources, "Tennessee ITB Opportunities");
+    tasks.push(() => searchTennesseePage(query, "Tennessee RFP Opportunities", TENNESSEE_RFP_URL, "RFP/RFI/RFQ"));
+    tasks.push(() => searchTennesseePage(query, "Tennessee ITB Opportunities", TENNESSEE_ITB_URL, "ITB"));
+  }
+
+  for (const source of sources) {
+    if (TEXAS_REFERENCE_SOURCE_NAMES.has(source.source_name)) {
+      removePending(pendingSources, source.source_name);
+      continue;
+    }
+
+    if (matchesFilter({ sourceState: source.state, sourceLevel: source.level, state, level })) {
+      if (source.source_name === "City of Austin Purchasing") {
+        searchedSources.push("City of Austin Purchasing");
+        removePending(pendingSources, "City of Austin Purchasing");
+        tasks.push(() => searchAustinSolicitations(query));
+        continue;
+      }
+
+      if (source.source_name === "City of Frisco Purchasing") {
+        searchedSources.push("City of Frisco Purchasing");
+        removePending(pendingSources, "City of Frisco Purchasing");
+        tasks.push(() => searchFriscoCurrentBids(query));
+        continue;
+      }
+
+      const texasBonfireSource = TEXAS_BONFIRE_SOURCE_BY_NAME.get(source.source_name);
+      if (texasBonfireSource) {
+        searchedSources.push(texasBonfireSource.sourceName);
+        removePending(pendingSources, texasBonfireSource.sourceName);
+        tasks.push(() => searchBonfire(query, texasBonfireSource));
+        continue;
+      }
+
+      const texasAgencySource = TEXAS_ESBD_AGENCY_SOURCE_BY_NAME.get(source.source_name);
+      if (texasAgencySource) {
+        searchedSources.push(texasAgencySource.sourceName);
+        removePending(pendingSources, texasAgencySource.sourceName);
+        tasks.push(() => searchTexasAgencyEsbd(query, texasAgencySource));
+        continue;
+      }
+    }
+
+    if (matchesFilter({ sourceState: source.state, sourceLevel: source.level, state, level }) && source.source_name === "The Woodlands Township Bids") {
+      searchedSources.push("The Woodlands Township Bids");
+      removePending(pendingSources, "The Woodlands Township Bids");
+      tasks.push(() => searchTheWoodlands(query));
+      continue;
+    }
+
+    if (HANDLED_SOURCE_NAMES.has(source.source_name)) {
+      continue;
+    }
+
+    if (!matchesFilter({ sourceState: source.state, sourceLevel: source.level, state, level })) {
+      continue;
+    }
+
+    if (source.state === "TX") {
+      continue;
+    }
+
+    searchedSources.push(source.source_name);
+    removePending(pendingSources, source.source_name);
+    tasks.push(() => searchOfficialSource(query, source));
+  }
+
+  const settled = await runLimited(tasks, 8);
+  const results = settled.flatMap((item) => item.results).sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+  const errors = settled.flatMap((item) => (item.error ? [`${item.source}: ${item.error}`] : []));
+
+  return {
+    results,
+    searchedSources,
+    pendingSources,
+    errors,
+    samConfigured,
+  };
+}
+
+async function searchTheWoodlands(query: string): Promise<{ source: string; results: UnifiedSearchResult[]; error?: string }> {
+  try {
+    const response = await fetchPublicPage(THE_WOODLANDS_BIDS_URL);
+
+    if (!response.ok) {
+      return { source: "The Woodlands Township Bids", results: [], error: `returned ${response.status}` };
+    }
+
+    const html = await response.text();
+    return {
+      source: "The Woodlands Township Bids",
+      results: parseTheWoodlandsBids(html, query),
+    };
+  } catch (error) {
+    return { source: "The Woodlands Township Bids", results: [], error: errorMessage(error) };
+  }
+}
+
+function parseTheWoodlandsBids(html: string, query: string): UnifiedSearchResult[] {
+  const openSection = html.match(/<h3>Open Bids<\/h3>([\s\S]*?)(?:<h3>Closed\/Awarded Bids<\/h3>|<\/main>)/i)?.[1] ?? "";
+  const entries = Array.from(openSection.matchAll(/<h4>([\s\S]*?)<\/h4>([\s\S]*?)(?=<h4>|$)/gi));
+  const terms = conceptTerms(query);
+
+  return entries
+    .map((entry, index) => theWoodlandsEntryToResult(entry[1], entry[2], terms, index))
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+function theWoodlandsEntryToResult(titleHtml: string, bodyHtml: string, terms: string[], index: number): UnifiedSearchResult | undefined {
+  const title = cleanText(titleHtml);
+  const description = cleanText(bodyHtml.split(/<strong>\s*Closing Date/i)[0] ?? bodyHtml);
+  const deadline = cleanText(bodyHtml.match(/<strong>\s*Closing Date:?<\/strong>\s*:?\s*([\s\S]*?)(?:<br|<\/p>)/i)?.[1] ?? "");
+  const contact = cleanText(bodyHtml.match(/<strong>\s*Contact:?[\s\S]*?<\/strong>\s*([\s\S]*?)(?:<\/p>|<br)/i)?.[1] ?? "");
+  const linkMatch = bodyHtml.match(/<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
+  const url = linkMatch ? new URL(linkMatch[1], THE_WOODLANDS_BIDS_URL).toString() : THE_WOODLANDS_BIDS_URL;
+  const linkText = linkMatch ? cleanText(linkMatch[2]) : "";
+  const haystack = [title, description, deadline, contact, linkText, "the woodlands township bids"].filter(Boolean).join(" ").toLowerCase();
+  const score = scoreOpportunity(haystack, terms, 65 - index);
+
+  if (terms.length > 0 && score <= 0) {
+    return undefined;
+  }
+
+  if (isPastDeadline(deadline)) {
+    return undefined;
+  }
+
+  return {
+    id: `the-woodlands:${title}`,
+    resultType: "opportunity",
+    title,
+    buyer: "The Woodlands Township",
+    sourceName: "The Woodlands Township Bids",
+    sourceLevel: "Local",
+    sourceState: "TX",
+    sourceType: "Public opportunity page",
+    url,
+    portalUrl: THE_WOODLANDS_BIDS_URL,
+    score,
+    status: "Open/public posting",
+    deadline,
+    contact,
+    documents: linkText ? [linkText] : [],
+    submissionInstructions: "Open the Township bid document and follow the stated submission method, required forms, and closing date.",
+    applicationChecklist: applicationChecklist({ hasSolicitationId: false, hasDeadline: Boolean(deadline), hasDocuments: Boolean(linkText), hasContact: Boolean(contact) }),
+    summary: [description, contact ? `Contact: ${contact}.` : ""].filter(Boolean).join(" "),
+    nextAction: "Open the Township bid document, confirm the submission method and due date, then route it for human review.",
+  };
+}
+
+async function searchSam(query: string): Promise<{ source: string; results: UnifiedSearchResult[]; error?: string }> {
+  const source = "SAM.gov Contract Opportunities";
+  const apiKey = process.env.SAM_API_KEY;
+  const terms = conceptTerms(query);
+
+  if (!apiKey) {
+    return { source, results: [], error: "SAM_API_KEY is missing" };
+  }
+
+  const today = new Date();
+  const prior = new Date(today);
+  prior.setDate(today.getDate() - 30);
+
+  const params = new URLSearchParams({
+    api_key: apiKey,
+    limit: "20",
+    keyword: query,
+    postedFrom: formatSamDate(prior),
+    postedTo: formatSamDate(today),
+  });
+
+  try {
+    const cacheKey = `sam:${formatSamDate(prior)}:${formatSamDate(today)}:${query.toLowerCase()}`;
+    const cached = samCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return { source, ...cached.value };
+    }
+
+    const existingRequest = samInFlight.get(cacheKey);
+    if (existingRequest) {
+      return { source, ...(await existingRequest) };
+    }
+
+    const request = fetchSamSearch(`https://api.sam.gov/opportunities/v2/search?${params.toString()}`, query, terms).finally(() => {
+      samInFlight.delete(cacheKey);
+    });
+    samInFlight.set(cacheKey, request);
+
+    const value = await request;
+    const ttl = value.error?.includes("rate limited")
+      ? SAM_RATE_LIMIT_CACHE_MS
+      : value.error
+        ? SAM_ERROR_CACHE_MS
+        : SAM_SUCCESS_CACHE_MS;
+    samCache.set(cacheKey, { expiresAt: Date.now() + ttl, value });
+
+    return { source, ...value };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+async function fetchSamSearch(url: string, query: string, terms: string[]): Promise<SamSearchResult> {
+  for (let attempt = 0; attempt < SAM_RETRY_DELAYS_MS.length; attempt += 1) {
+    const delayMs = SAM_RETRY_DELAYS_MS[attempt];
+    if (delayMs > 0) {
+      await delay(delayMs);
+    }
+
+    const response = await fetch(url, {
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (response.status === 429 && attempt < SAM_RETRY_DELAYS_MS.length - 1) {
+      continue;
+    }
+
+    if (response.status === 429) {
+      return {
+        results: [],
+        error: "SAM.gov rate limited the API key. The connector is wired, cached, and will retry after a cooldown.",
+      };
+    }
+
+    if (!response.ok) {
+      return { results: [], error: `official API returned ${response.status}` };
+    }
+
+    const data = await response.json();
+    if (!Array.isArray(data.opportunitiesData)) {
+      return { results: [] };
+    }
+
+    const results = (data.opportunitiesData as Array<Record<string, unknown>>)
+      .map((item: Record<string, unknown>, index: number): UnifiedSearchResult | undefined => {
+      const title = stringValue(item.title) ?? "Untitled opportunity";
+      const solicitation = stringValue(item.solicitationNumber);
+      const url = stringValue(item.uiLink) ?? samSearchUrl(query);
+      const agency = stringValue(item.fullParentPathName) ?? stringValue(item.agency) ?? "SAM.gov";
+      const office = stringValue(item.officeName);
+      const status = stringValue(item.type) ?? "Opportunity";
+      const deadline = stringValue(item.responseDeadLine);
+      const postedDate = stringValue(item.postedDate);
+      const haystack = [title, solicitation, agency, office, status].filter(Boolean).join(" ").toLowerCase();
+      const score = scoreOpportunity(haystack, terms, 100 - index);
+
+      if (terms.length > 0 && score <= 0) {
+        return undefined;
+      }
+
+      if (isPastDeadline(deadline) || ["award notice", "justification"].includes(status.toLowerCase())) {
+        return undefined;
+      }
+
+      return {
+        id: `sam:${solicitation ?? index}:${title}`,
+        resultType: "opportunity",
+        title,
+        buyer: [agency, office].filter(Boolean).join(" / "),
+        sourceName: "SAM.gov",
+        sourceLevel: "Federal",
+        sourceState: "US",
+        sourceType: "Official API",
+        url,
+        portalUrl: samSearchUrl(query),
+        score,
+        status,
+        solicitationId: solicitation,
+        deadline,
+        postedDate,
+        submissionInstructions: "Open the SAM.gov opportunity package and review the solicitation attachments, response format, set-aside rules, and submission method.",
+        applicationChecklist: applicationChecklist({ hasSolicitationId: Boolean(solicitation), hasDeadline: Boolean(deadline), hasDocuments: true, hasContact: Boolean(office) }),
+        summary: [solicitation ? `Solicitation ${solicitation}.` : "", office ? `Office: ${office}.` : ""].filter(Boolean).join(" "),
+        nextAction: "Review the solicitation package, then add the opportunity to the human-review tracker if it fits.",
+      };
+    })
+    .filter((result): result is UnifiedSearchResult => Boolean(result));
+
+    return { results };
+  }
+
+  return { results: [], error: "SAM.gov search failed." };
+}
+
+async function searchTexasEsbd(query: string): Promise<{ source: string; results: UnifiedSearchResult[]; error?: string }> {
+  const source = "Texas Electronic State Business Daily";
+
+  try {
+    const nigpCodes = texasEsbdNigpCodes(query);
+    const batches =
+      nigpCodes.length > 0
+        ? await Promise.all(nigpCodes.map((nigp) => fetchTexasEsbdBatch({ nigp, status: TEXAS_ESBD_ACTIVE_STATUS })))
+        : [await fetchTexasEsbdPages({ status: TEXAS_ESBD_ACTIVE_STATUS }, TEXAS_ESBD_DEFAULT_RECENT_PAGES)];
+
+    const errors = batches.flatMap((batch) => batch.error ?? []);
+    const rowsById = new Map<string, TexasEsbdLine>();
+
+    for (const batch of batches) {
+      for (const line of batch.lines) {
+        const key = line.solicitationId || line.internalid || `${line.title}:${line.responseDue}`;
+        if (key) {
+          rowsById.set(key, line);
+        }
+      }
+    }
+
+    return { source, results: parseTexasEsbdLines(Array.from(rowsById.values()), query), error: errors[0] };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+async function searchTexasAgencyEsbd(
+  query: string,
+  agencySource: TexasEsbdAgencySource,
+): Promise<{ source: string; results: UnifiedSearchResult[]; error?: string }> {
+  try {
+    const nigpCodes = texasEsbdNigpCodes(query);
+    const batches = await runLimited(
+      agencySource.agencyNumbers.flatMap((agencyNumber) =>
+        nigpCodes.length > 0
+          ? nigpCodes.map((nigp) => () => fetchTexasEsbdBatch({ agencyNumber, nigp, status: TEXAS_ESBD_ACTIVE_STATUS }))
+          : [() => fetchTexasEsbdPages({ agencyNumber, status: TEXAS_ESBD_ACTIVE_STATUS }, TEXAS_ESBD_DEFAULT_RECENT_PAGES)],
+      ),
+      4,
+    );
+
+    const rowsById = new Map<string, TexasEsbdLine>();
+    const allowedAgencyNumbers = new Set(agencySource.agencyNumbers.map((agencyNumber) => agencyNumber.toUpperCase()));
+    for (const batch of batches) {
+      for (const line of batch.lines) {
+        if (!line.agencyNumber || !allowedAgencyNumbers.has(line.agencyNumber.toUpperCase())) {
+          continue;
+        }
+
+        const key = line.solicitationId || line.internalid || `${line.title}:${line.responseDue}`;
+        if (key) {
+          rowsById.set(key, line);
+        }
+      }
+    }
+
+    return {
+      source: agencySource.sourceName,
+      results: parseTexasEsbdLines(Array.from(rowsById.values()), query, {
+        sourceName: agencySource.sourceName,
+        buyerFallback: agencySource.buyer,
+      }),
+      error: batches.find((batch) => batch.error)?.error,
+    };
+  } catch (error) {
+    return { source: agencySource.sourceName, results: [], error: errorMessage(error) };
+  }
+}
+
+type TexasEsbdLine = {
+  internalid?: string;
+  title?: string;
+  solicitationId?: string;
+  responseDue?: string;
+  responseTime?: string;
+  agencyNumber?: string;
+  agencyName?: string;
+  status?: string;
+  statusName?: string;
+  postingDate?: string;
+  created?: string;
+  lastModified?: string;
+  nigpCodes?: string;
+  repostURL?: string;
+  url?: string;
+};
+
+type TexasEsbdResponse = {
+  lines?: TexasEsbdLine[];
+  page?: number;
+  recordsPerPage?: number;
+  totalRecordsFound?: number;
+};
+
+async function fetchTexasEsbdBatch(params: Record<string, string>) {
+  const firstPage = await fetchTexasEsbdPage({ ...params, page: "1", urlRoot: "esbd" });
+  if (firstPage.error) {
+    return { lines: [], error: firstPage.error };
+  }
+
+  const totalRecords = firstPage.data.totalRecordsFound ?? firstPage.data.lines?.length ?? 0;
+  const recordsPerPage = firstPage.data.recordsPerPage || 24;
+  const totalPages = Math.ceil(totalRecords / recordsPerPage);
+  const remainingPages = Array.from({ length: Math.max(0, totalPages - 1) }, (_, index) => index + 2);
+  const remaining = await runLimited(
+    remainingPages.map((page) => () => fetchTexasEsbdPage({ ...params, page: String(page), urlRoot: "esbd" })),
+    4,
+  );
+
+  return {
+    lines: [firstPage.data, ...remaining.filter((page) => !page.error).map((page) => page.data)].flatMap((page) => page.lines ?? []),
+    error: remaining.find((page) => page.error)?.error,
+  };
+}
+
+async function fetchTexasEsbdPages(params: Record<string, string>, pageCount: number) {
+  const pages = await runLimited(
+    Array.from({ length: pageCount }, (_, index) => () => fetchTexasEsbdPage({ ...params, page: String(index + 1), urlRoot: "esbd" })),
+    4,
+  );
+
+  return {
+    lines: pages.filter((page) => !page.error).flatMap((page) => page.data.lines ?? []),
+    error: pages.find((page) => page.error)?.error,
+  };
+}
+
+async function fetchTexasEsbdPage(payload: Record<string, string>): Promise<{ data: TexasEsbdResponse; error?: string }> {
+  const controller = new AbortController();
+  const timeout = windowlessTimeout(() => controller.abort(), 15000);
+
+  try {
+    const response = await fetch(TEXAS_ESBD_SERVICE_URL, {
+      method: "POST",
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 GovContractFinder/0.1",
+        Accept: "application/json, text/javascript, */*; q=0.01",
+        "Content-Type": "application/json; charset=UTF-8",
+        "X-Requested-With": "XMLHttpRequest",
+        "X-SC-Touchpoint": "shopping",
+        Origin: "https://www.txsmartbuy.gov",
+        Referer: TEXAS_ESBD_URL,
+      },
+      body: JSON.stringify(payload),
+      cache: "no-store",
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      return { data: {}, error: `official ESBD service returned ${response.status}` };
+    }
+
+    const data = (await response.json()) as TexasEsbdResponse & { errorStatusCode?: string; errorMessage?: string };
+    if (data.errorStatusCode) {
+      return { data: {}, error: data.errorMessage ?? `official ESBD service returned ${data.errorStatusCode}` };
+    }
+
+    return { data };
+  } catch (error) {
+    return { data: {}, error: errorMessage(error).replace("8 seconds", "15 seconds") };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function texasEsbdNigpCodes(query: string) {
+  const terms = conceptTerms(query);
+  const codes = new Set<string>();
+
+  for (const mapping of TEXAS_ESBD_NIGP_CODES_BY_CONCEPT) {
+    if (mapping.terms.some((term) => terms.includes(term))) {
+      mapping.codes.forEach((code) => codes.add(code));
+    }
+  }
+
+  return Array.from(codes);
+}
+
+function parseTexasEsbdLines(
+  lines: TexasEsbdLine[],
+  query: string,
+  options: { sourceName?: string; buyerFallback?: string } = {},
+): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+
+  return lines
+    .map((line, index) => texasEsbdLineToResult(line, terms, index, options))
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+async function searchTennesseePage(
+  query: string,
+  source: string,
+  url: string,
+  kind: string,
+): Promise<{ source: string; results: UnifiedSearchResult[]; error?: string }> {
+  try {
+    const response = await fetchPublicPage(url);
+
+    if (!response.ok) {
+      return { source, results: [], error: `returned ${response.status}` };
+    }
+
+    const html = await response.text();
+    return {
+      source,
+      results: parseTennesseeTable(html, query, source, url, kind),
+    };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+function parseTennesseeTable(html: string, query: string, source: string, portalUrl: string, kind: string): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+  const rows = Array.from(html.matchAll(/<tr>([\s\S]*?)<\/tr>/g));
+
+  return rows
+    .map((row, index) => tennesseeRowToResult(row[1], terms, index, source, portalUrl, kind))
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+function tennesseeRowToResult(
+  row: string,
+  terms: string[],
+  index: number,
+  source: string,
+  portalUrl: string,
+  kind: string,
+): UnifiedSearchResult | undefined {
+  const cells = Array.from(row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)).map((match) => match[1]);
+  if (cells.length < 3) {
+    return undefined;
+  }
+
+  const linkMatch = cells[0].match(/<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
+  if (!linkMatch) {
+    return undefined;
+  }
+
+  const solicitationId = cleanText(linkMatch[2]);
+  const documentUrl = new URL(linkMatch[1], portalUrl).toString();
+  const dates = cleanText(cells[1]).split(/\s+/).filter(Boolean);
+  const postedDate = dates[0];
+  const deadline = dates.slice(1).join(" ");
+  const description = cleanText(cells[2]);
+  const linkText = cleanText(cells[0]);
+  const title = description ? `${solicitationId}: ${description}` : solicitationId;
+  const haystack = [title, linkText, postedDate, deadline, source, kind].filter(Boolean).join(" ").toLowerCase();
+  const score = scoreOpportunity(haystack, terms, 75 - index);
+
+  if (terms.length > 0 && score <= 0) {
+    return undefined;
+  }
+
+  if (isPastDeadline(deadline)) {
+    return undefined;
+  }
+
+  return {
+    id: `tn:${source}:${solicitationId}:${title}`,
+    resultType: "opportunity",
+    title,
+    buyer: "Tennessee Central Procurement Office",
+    sourceName: source,
+    sourceLevel: "State",
+    sourceState: "TN",
+    sourceType: `${kind} public opportunity page`,
+    url: documentUrl,
+    portalUrl,
+    score,
+    status: "Open/public posting",
+    solicitationId,
+    deadline,
+    postedDate,
+    submissionInstructions: "Open the Tennessee posting document and follow the stated response instructions, required attachments, and due date.",
+    applicationChecklist: applicationChecklist({ hasSolicitationId: Boolean(solicitationId), hasDeadline: Boolean(deadline), hasDocuments: true, hasContact: false }),
+    summary: [solicitationId ? `Solicitation ${solicitationId}.` : "", postedDate ? `Posted ${postedDate}.` : ""].filter(Boolean).join(" "),
+    nextAction: "Open the Tennessee posting document, confirm scope and due date, then add it to the tracker for human review.",
+  };
+}
+
+function texasRowToResult(row: string, terms: string[], index: number): UnifiedSearchResult | undefined {
+  const titleMatch = row.match(/<div class="esbd-result-title"><a href="([^"]+)">\s*([\s\S]*?)\s*<\/a>/);
+  if (!titleMatch) {
+    return undefined;
+  }
+
+  const title = cleanText(titleMatch[2]);
+  const href = titleMatch[1];
+  const labels = Object.fromEntries(
+    Array.from(row.matchAll(/<strong>([^<]+)<\/strong>\s*([\s\S]*?)(?=<strong>|$)/g)).map((match) => [
+      cleanText(match[1]).replace(/:$/, ""),
+      cleanText(match[2]),
+    ]),
+  );
+  const solicitationId = labels["Solicitation ID"];
+  const deadline = [labels["Due Date"], labels["Due Time"]].filter(Boolean).join(" ");
+  const buyer = labels["Agency/Texas SmartBuy Member Number"] ? `Agency/member ${labels["Agency/Texas SmartBuy Member Number"]}` : "Texas ESBD";
+  const status = labels.Status ?? "Opportunity";
+  const haystack = [title, solicitationId, buyer, status, labels["Posting Date"]].filter(Boolean).join(" ").toLowerCase();
+  const score = scoreOpportunity(haystack, terms, 80 - index);
+
+  if (terms.length > 0 && score <= 0) {
+    return undefined;
+  }
+
+  if (status.toLowerCase().includes("closed") || isPastDeadline(deadline)) {
+    return undefined;
+  }
+
+  return {
+    id: `tx-esbd:${solicitationId ?? index}:${title}`,
+    resultType: "opportunity",
+    title,
+    buyer,
+    sourceName: "Texas ESBD",
+    sourceLevel: "State",
+    sourceState: "TX",
+    sourceType: "Public opportunity page",
+    url: new URL(href, TEXAS_ESBD_URL).toString(),
+    portalUrl: TEXAS_ESBD_URL,
+    score,
+    status,
+    solicitationId,
+    deadline,
+    postedDate: labels["Posting Date"],
+    submissionInstructions: "Open the ESBD posting, download every solicitation/addendum file, confirm vendor-registration requirements, and follow the buyer's stated submission rules.",
+    applicationChecklist: applicationChecklist({ hasSolicitationId: Boolean(solicitationId), hasDeadline: Boolean(deadline), hasDocuments: true, hasContact: Boolean(buyer) }),
+    summary: [solicitationId ? `Solicitation ${solicitationId}.` : "", labels["Posting Date"] ? `Posted ${labels["Posting Date"]}.` : ""]
+      .filter(Boolean)
+      .join(" "),
+    nextAction: "Open the ESBD posting, confirm scope and submission rules, then add it to the tracker for human review.",
+  };
+}
+
+function texasEsbdLineToResult(
+  line: TexasEsbdLine,
+  terms: string[],
+  index: number,
+  options: { sourceName?: string; buyerFallback?: string } = {},
+): UnifiedSearchResult | undefined {
+  const title = line.title?.trim() || "Untitled ESBD opportunity";
+  const solicitationId = line.solicitationId?.trim();
+  const deadline = [line.responseDue, line.responseTime].filter(Boolean).join(" ");
+  const buyer = line.agencyName || options.buyerFallback || (line.agencyNumber ? `Agency/member ${line.agencyNumber}` : "Texas ESBD");
+  const status = line.statusName || "Opportunity";
+  const haystack = [title, solicitationId, buyer, status, line.postingDate, line.nigpCodes].filter(Boolean).join(" ").toLowerCase();
+  const score = scoreOpportunity(haystack, terms, 90 - Math.min(index, 40));
+
+  if (terms.length > 0 && score <= 0) {
+    return undefined;
+  }
+
+  if (status.toLowerCase().includes("closed") || isPastDeadline(deadline)) {
+    return undefined;
+  }
+
+  const url = line.url || line.repostURL || (solicitationId ? `/esbd/${encodeURIComponent(solicitationId)}` : TEXAS_ESBD_URL);
+
+  return {
+    id: `tx-esbd:${solicitationId ?? line.internalid ?? index}:${title}`,
+    resultType: "opportunity",
+    title,
+    buyer,
+    sourceName: options.sourceName ?? "Texas ESBD",
+    sourceLevel: "State",
+    sourceState: "TX",
+    sourceType: "Official ESBD service",
+    url: new URL(url, TEXAS_ESBD_URL).toString(),
+    portalUrl: TEXAS_ESBD_URL,
+    score,
+    status,
+    solicitationId,
+    deadline,
+    postedDate: line.postingDate,
+    documents: line.nigpCodes ? [`NIGP: ${line.nigpCodes}`] : [],
+    submissionInstructions: "Open the ESBD posting, download every solicitation/addendum file, confirm vendor-registration requirements, and follow the buyer's stated submission rules.",
+    applicationChecklist: applicationChecklist({ hasSolicitationId: Boolean(solicitationId), hasDeadline: Boolean(deadline), hasDocuments: true, hasContact: Boolean(buyer) }),
+    summary: [
+      solicitationId ? `Solicitation ${solicitationId}.` : "",
+      line.postingDate ? `Posted ${line.postingDate}.` : "",
+      line.nigpCodes ? `NIGP: ${line.nigpCodes}` : "",
+    ]
+      .filter(Boolean)
+      .join(" "),
+    nextAction: "Open the ESBD posting, confirm scope and submission rules, then add it to the tracker for human review.",
+  };
+}
+
+type BonfireProject = {
+  ProjectID?: string;
+  PrivateProjectID?: string;
+  ReferenceID?: string;
+  ProjectName?: string;
+  DateClose?: string;
+  DepartmentID?: string;
+};
+
+async function searchBonfire(query: string, source: BonfireSource): Promise<SearchTaskResult> {
+  try {
+    const cacheKey = `bonfire:${source.sourceName}:${query.toLowerCase()}`;
+    const cached = bonfireCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return { source: source.sourceName, ...cached.value };
+    }
+
+    const existingRequest = bonfireInFlight.get(cacheKey);
+    if (existingRequest) {
+      return { source: source.sourceName, ...(await existingRequest) };
+    }
+
+    const request = getBonfireProjects(source)
+      .then((value) => ({
+        results: value.projects ? parseBonfireProjects(value.projects, query, source) : value.results,
+        error: value.error,
+      }))
+      .finally(() => {
+        bonfireInFlight.delete(cacheKey);
+      });
+    bonfireInFlight.set(cacheKey, request);
+
+    const value = await request;
+    const ttl = value.error?.includes("rate limited")
+      ? BONFIRE_RATE_LIMIT_CACHE_MS
+      : value.error
+        ? BONFIRE_ERROR_CACHE_MS
+        : BONFIRE_SUCCESS_CACHE_MS;
+    bonfireCache.set(cacheKey, { expiresAt: Date.now() + ttl, value });
+
+    return { source: source.sourceName, ...value };
+  } catch (error) {
+    return { source: source.sourceName, results: [], error: errorMessage(error) };
+  }
+}
+
+async function getBonfireProjects(source: BonfireSource): Promise<ConnectorSearchResult & { projects?: BonfireProject[] }> {
+  const cacheKey = `bonfire-projects:${source.sourceName}`;
+  const cached = bonfireProjectsCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return { results: [], projects: cached.projects };
+  }
+
+  const existingRequest = bonfireProjectsInFlight.get(cacheKey);
+  if (existingRequest) {
+    return existingRequest;
+  }
+
+  const request = runBonfireQueued(() => fetchBonfireProjects(source)).finally(() => {
+    bonfireProjectsInFlight.delete(cacheKey);
+  });
+  bonfireProjectsInFlight.set(cacheKey, request);
+
+  const value = await request;
+  if (value.projects) {
+    bonfireProjectsCache.set(cacheKey, { expiresAt: Date.now() + BONFIRE_SUCCESS_CACHE_MS, projects: value.projects });
+  }
+
+  return value;
+}
+
+async function fetchBonfireProjects(source: BonfireSource): Promise<ConnectorSearchResult & { projects?: BonfireProject[] }> {
+  try {
+    const endpoint = new URL("/PublicPortal/getOpenPublicOpportunitiesSectionData", source.portalUrl).toString();
+    const response = await fetch(endpoint, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 GovContractFinder/0.1",
+        Accept: "application/json, text/javascript, */*; q=0.01",
+        "X-Requested-With": "XMLHttpRequest",
+        Referer: source.portalUrl,
+      },
+      cache: "no-store",
+    });
+
+    if (response.status === 429) {
+      return { results: [], error: "Bonfire rate limited the portal request; connector is queued and cached, retry after cooldown." };
+    }
+
+    if (!response.ok) {
+      return { results: [], error: `Bonfire API returned ${response.status}` };
+    }
+
+    const data = (await response.json()) as {
+      success?: boolean;
+      message?: string;
+      payload?: { projects?: Record<string, BonfireProject> | BonfireProject[] };
+    };
+    if (data.success === false) {
+      return { results: [], error: data.message || "Bonfire API returned an unsuccessful response" };
+    }
+
+    const projectsPayload = data.payload?.projects ?? {};
+    const projects = Array.isArray(projectsPayload) ? projectsPayload : Object.values(projectsPayload);
+    return { results: [], projects };
+  } catch (error) {
+    return { results: [], error: errorMessage(error) };
+  }
+}
+
+function parseBonfireProjects(projects: BonfireProject[], query: string, source: BonfireSource): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+
+  return projects
+    .map((project, index) => bonfireProjectToResult(project, terms, index, source))
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+function bonfireProjectToResult(
+  project: BonfireProject,
+  terms: string[],
+  index: number,
+  source: BonfireSource,
+): UnifiedSearchResult | undefined {
+  const title = project.ProjectName?.trim() || "Untitled Bonfire opportunity";
+  const solicitationId = project.ReferenceID?.trim();
+  const deadline = project.DateClose?.trim();
+  const haystack = [title, solicitationId, source.buyer].filter(Boolean).join(" ").toLowerCase();
+  const score = scoreOpportunity(haystack, terms, 78 - Math.min(index, 40));
+
+  if (terms.length > 0 && score <= 0) {
+    return undefined;
+  }
+
+  if (isPastDeadline(deadline)) {
+    return undefined;
+  }
+
+  const projectUrl = project.ProjectID ? new URL(`/opportunities/${project.ProjectID}`, source.portalUrl).toString() : source.portalUrl;
+
+  return {
+    id: `bonfire:${source.sourceName}:${project.ProjectID ?? solicitationId ?? index}:${title}`,
+    resultType: "opportunity",
+    title,
+    buyer: source.buyer,
+    sourceName: source.sourceName,
+    sourceLevel: source.level,
+    sourceState: "TX",
+    sourceType: "Bonfire official API",
+    url: projectUrl,
+    portalUrl: source.portalUrl,
+    score,
+    status: "Open public opportunity",
+    solicitationId,
+    deadline,
+    submissionInstructions: "Open the Bonfire opportunity, log in or register if required, review all project files and addenda, then submit through Bonfire before the close date.",
+    applicationChecklist: applicationChecklist({ hasSolicitationId: Boolean(solicitationId), hasDeadline: Boolean(deadline), hasDocuments: true, hasContact: false }),
+    summary: [solicitationId ? `Reference ${solicitationId}.` : "", deadline ? `Closes ${deadline}.` : ""].filter(Boolean).join(" "),
+    nextAction: "Open the Bonfire opportunity, confirm scope and submission rules, then route it for human review.",
+  };
+}
+
+async function searchAustinSolicitations(query: string): Promise<SearchTaskResult> {
+  const source = "City of Austin Purchasing";
+  try {
+    const response = await fetchPublicPage(AUSTIN_SOLICITATIONS_URL);
+    if (!response.ok) {
+      return { source, results: [], error: `Austin Finance Online returned ${response.status}` };
+    }
+
+    const html = await response.text();
+    const detailUrls = extractAustinSolicitationUrls(html).slice(0, 40);
+    const detailPages = await runLimited(
+      detailUrls.map((url) => async () => {
+        try {
+          const detailResponse = await fetchPublicPage(url);
+          return detailResponse.ok ? { url, html: await detailResponse.text() } : undefined;
+        } catch {
+          return undefined;
+        }
+      }),
+      4,
+    );
+
+    return {
+      source,
+      results: parseAustinSolicitationDetails(
+        detailPages.filter((page): page is { url: string; html: string } => Boolean(page)),
+        query,
+      ),
+    };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+function extractAustinSolicitationUrls(html: string) {
+  const urls = new Set<string>();
+  for (const match of html.matchAll(/href=(["'])(solicitation_details\.cfm\?sid=\d+)\1/gi)) {
+    urls.add(new URL(decodeHtml(match[2]), AUSTIN_SOLICITATIONS_URL).toString());
+  }
+
+  return Array.from(urls);
+}
+
+function parseAustinSolicitationDetails(pages: Array<{ url: string; html: string }>, query: string): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+
+  return pages
+    .map((page, index) => austinDetailToResult(page, terms, index))
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+function austinDetailToResult(page: { url: string; html: string }, terms: string[], index: number): UnifiedSearchResult | undefined {
+  const text = htmlToText(page.html);
+  const solicitationId = text.match(/Solicitation Number:\s*([A-Z0-9 -]+?)(?=\s+Description:)/i)?.[1]?.trim();
+  const description = text.match(/Description:\s*([\s\S]*?)(?=\s+Summary:)/i)?.[1]?.trim();
+  const summary = text.match(/Summary:\s*([\s\S]*?)(?=\s+My eResponse|\s+Basic Information)/i)?.[1]?.trim();
+  const status = text.match(/Status:\s*([A-Za-z ]+?)(?=\s+Solicitation Number:)/i)?.[1]?.trim() || "Open";
+  const deadline = text.match(/Response Due:\s*(Prior to\s*)?([^R]+?)(?=\s+Response Opening:|\s+Special Notes)/i)?.[2]?.trim();
+  const contact = text.match(/Solicitation Specific Questions:\s*([\s\S]*?)(?=\s+Small Minority Business Resources Questions:|\s+Dates & Times)/i)?.[1]?.trim();
+  const documents = Array.from(page.html.matchAll(/File Description\s*([\s\S]*?)\s+(?:pdf|docx|xlsx|xls|zip)\s+\d{2}\/\d{2}\/\d{4}/gi))
+    .map((match) => cleanText(match[1]))
+    .filter(Boolean)
+    .slice(0, 8);
+  const title = [solicitationId, description].filter(Boolean).join(": ") || "City of Austin solicitation";
+  const haystack = [title, summary, status].filter(Boolean).join(" ").toLowerCase();
+  const score = scoreOpportunity(haystack, terms, 72 - Math.min(index, 35));
+
+  if (terms.length > 0 && score <= 0) {
+    return undefined;
+  }
+
+  if (status.toLowerCase().includes("closed") || isPastDeadline(deadline)) {
+    return undefined;
+  }
+
+  return {
+    id: `austin:${solicitationId ?? index}:${title}`,
+    resultType: "opportunity",
+    title,
+    buyer: "City of Austin",
+    sourceName: "City of Austin Purchasing",
+    sourceLevel: "Local",
+    sourceState: "TX",
+    sourceType: "Austin Finance Online",
+    url: page.url,
+    portalUrl: AUSTIN_SOLICITATIONS_URL,
+    score,
+    status,
+    solicitationId,
+    deadline,
+    contact,
+    documents,
+    submissionInstructions: "Create or sign into Austin Finance Online, review the solicitation packet and attachments, then submit the eResponse before the response due time.",
+    applicationChecklist: applicationChecklist({ hasSolicitationId: Boolean(solicitationId), hasDeadline: Boolean(deadline), hasDocuments: documents.length > 0, hasContact: Boolean(contact) }),
+    summary: summary || [solicitationId ? `Solicitation ${solicitationId}.` : "", deadline ? `Response due ${deadline}.` : ""].filter(Boolean).join(" "),
+    nextAction: "Open the Austin Finance Online solicitation, confirm scope and due date, then route it for human review.",
+  };
+}
+
+async function searchFriscoCurrentBids(query: string): Promise<SearchTaskResult> {
+  const source = "City of Frisco Purchasing";
+  try {
+    const response = await fetchPublicPage(FRISCO_CURRENT_BIDS_URL);
+    if (!response.ok) {
+      return { source, results: [], error: `Frisco current bids returned ${response.status}` };
+    }
+
+    const html = await response.text();
+    return { source, results: parseFriscoCurrentBids(html, query) };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+function parseFriscoCurrentBids(html: string, query: string): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+  const entries = Array.from(html.matchAll(/<li[^>]*class="[^"]*widgetItem[\s\S]*?<\/li>/gi));
+
+  return entries
+    .map((entry, index) => friscoCurrentBidToResult(entry[0], terms, index))
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+function friscoCurrentBidToResult(entryHtml: string, terms: string[], index: number): UnifiedSearchResult | undefined {
+  const linkMatch = entryHtml.match(/<a[^>]*href=(["'])(.*?)\1[^>]*>([\s\S]*?)<\/a>/i);
+  if (!linkMatch) {
+    return undefined;
+  }
+
+  const title = cleanText(linkMatch[3]);
+  const url = safeAbsoluteUrl(decodeHtml(linkMatch[2]), FRISCO_CURRENT_BIDS_URL) ?? FRISCO_CURRENT_BIDS_URL;
+  const description = cleanText(entryHtml.match(/<p[^>]*class="[^"]*widgetDesc[^"]*"[^>]*>([\s\S]*?)<\/p>/i)?.[1] ?? "");
+  const referenceId = title.match(/Reference #:\s*([^\.]+)\./i)?.[1]?.trim();
+  const deadline = description.match(/Project closes\s+([^\.]+)\./i)?.[1]?.trim();
+  const haystack = [title, description].filter(Boolean).join(" ").toLowerCase();
+  const score = scoreOpportunity(haystack, terms, 70 - Math.min(index, 20));
+
+  if (terms.length > 0 && score <= 0) {
+    return undefined;
+  }
+
+  if (isPastDeadline(deadline)) {
+    return undefined;
+  }
+
+  return {
+    id: `frisco:${referenceId ?? index}:${title}`,
+    resultType: "opportunity",
+    title,
+    buyer: "City of Frisco",
+    sourceName: "City of Frisco Purchasing",
+    sourceLevel: "Local",
+    sourceState: "TX",
+    sourceType: "Official current bids page",
+    url,
+    portalUrl: FRISCO_CURRENT_BIDS_URL,
+    score,
+    status: "Open/current bid",
+    solicitationId: referenceId,
+    deadline,
+    submissionInstructions: "Open the Frisco posting, review the linked Bonfire opportunity and attached files, then submit through the stated portal before close.",
+    applicationChecklist: applicationChecklist({ hasSolicitationId: Boolean(referenceId), hasDeadline: Boolean(deadline), hasDocuments: true, hasContact: false }),
+    summary: description,
+    nextAction: "Open the Frisco posting, confirm scope and submission rules, then route it for human review.",
+  };
+}
+
+async function searchOfficialSource(query: string, source: ProcurementSource): Promise<SearchTaskResult> {
+  try {
+    const page = await fetchSourcePage(source);
+
+    if (page.error) {
+      return { source: source.source_name, results: [], error: page.error };
+    }
+
+    return {
+      source: source.source_name,
+      results: parseOfficialSourcePage(page.html, query, { ...source, url: page.url }),
+    };
+  } catch (error) {
+    return { source: source.source_name, results: [], error: errorMessage(error) };
+  }
+}
+
+async function fetchSourcePage(source: ProcurementSource): Promise<{ url: string; html: string; error?: string }> {
+  try {
+    const response = await fetchPublicPage(source.url);
+    if (response.ok) {
+      return { url: source.url, html: await response.text() };
+    }
+
+    const discovered = await discoverProcurementPage(source);
+    if (discovered) {
+      return discovered;
+    }
+
+    return { url: source.url, html: "", error: `returned ${response.status}` };
+  } catch (error) {
+    const discovered = await discoverProcurementPage(source);
+    if (discovered) {
+      return discovered;
+    }
+
+    return { url: source.url, html: "", error: errorMessage(error) };
+  }
+}
+
+async function discoverProcurementPage(source: ProcurementSource) {
+  const origin = safeOrigin(source.url);
+  if (!origin) {
+    return undefined;
+  }
+
+  try {
+    const response = await fetchPublicPage(origin);
+    if (!response.ok) {
+      return undefined;
+    }
+
+    const html = await response.text();
+    const candidateUrls = extractProcurementPageCandidates(html, origin);
+    for (const candidateUrl of candidateUrls.slice(0, 6)) {
+      try {
+        const candidateResponse = await fetchPublicPage(candidateUrl);
+        if (candidateResponse.ok) {
+          return { url: candidateUrl, html: await candidateResponse.text() };
+        }
+      } catch {
+        // Try the next discovered candidate.
+      }
+    }
+  } catch {
+    return undefined;
+  }
+
+  return undefined;
+}
+
+function extractProcurementPageCandidates(html: string, baseUrl: string) {
+  const anchors = Array.from(html.matchAll(/<a\b[^>]*href=(["'])(.*?)\1[^>]*>([\s\S]*?)<\/a>/gi));
+  const seen = new Set<string>();
+  const candidates: Array<{ url: string; score: number }> = [];
+
+  for (const anchor of anchors) {
+    const href = decodeHtml(anchor[2]).trim();
+    const text = cleanText(anchor[3]);
+    const haystack = `${text} ${href}`.toLowerCase();
+    if (!/\b(procurement|purchasing|vendor|supplier|bid|bids|rfp|rfq|solicitation|business)\b/i.test(haystack)) {
+      continue;
+    }
+
+    const url = safeAbsoluteUrl(href, baseUrl);
+    if (!url || seen.has(url)) {
+      continue;
+    }
+
+    seen.add(url);
+    const score = ["procurement", "purchasing", "bid", "rfp", "solicitation", "vendor", "supplier", "business"].reduce(
+      (total, word) => total + (haystack.includes(word) ? 1 : 0),
+      0,
+    );
+    candidates.push({ url, score });
+  }
+
+  return candidates.sort((a, b) => b.score - a.score).map((candidate) => candidate.url);
+}
+
+function parseOfficialSourcePage(html: string, query: string, source: ProcurementSource): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+  return extractOpportunityLinks(html, query, source, terms);
+}
+
+function extractOpportunityLinks(html: string, query: string, source: ProcurementSource, terms: string[]) {
+  const anchors = Array.from(html.matchAll(/<a\b[^>]*href=(["'])(.*?)\1[^>]*>([\s\S]*?)<\/a>/gi));
+  const results: UnifiedSearchResult[] = [];
+  const seen = new Set<string>();
+
+  anchors.forEach((anchor, index) => {
+    const href = decodeHtml(anchor[2]).trim();
+    if (!href || href.startsWith("#") || href.startsWith("mailto:") || href.startsWith("tel:") || href.startsWith("javascript:")) {
+      return;
+    }
+
+    const linkText = cleanText(anchor[3]);
+    const haystack = [linkText, href].filter(Boolean).join(" ").toLowerCase();
+    const score = scoreOpportunity(haystack, terms, 50 - Math.min(index, 30));
+    if (score <= 0 || !hasOpportunityLanguage(haystack)) {
+      return;
+    }
+
+    const url = safeAbsoluteUrl(href, source.url);
+    if (!url || seen.has(url)) {
+      return;
+    }
+
+    seen.add(url);
+    results.push({
+      id: `source-link:${source.source_name}:${url}`,
+      resultType: "opportunity",
+      title: linkText || `${source.source_name} matching procurement link`,
+      buyer: source.source_name,
+      sourceName: source.source_name,
+      sourceLevel: source.level,
+      sourceState: source.state,
+      sourceType: `${source.source_type} official page`,
+      url,
+      portalUrl: source.url,
+      score,
+      status: "Official source checked",
+      summary: `Matching procurement link found on the official ${source.source_name} page.`,
+      nextAction: "Open the linked posting or portal, confirm current solicitation details, then route valid opportunities for human review.",
+    });
+  });
+
+  return results.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title)).slice(0, 3);
+}
+
+function scoreOpportunity(haystack: string, terms: string[], baseScore: number) {
+  if (terms.length === 0) {
+    return baseScore;
+  }
+
+  const phrase = terms.join(" ");
+  const phraseScore = haystack.includes(phrase) ? 40 : 0;
+  const termScore = terms.reduce((score, term) => score + (haystack.includes(term) ? 12 : 0), 0);
+  const strategicScore = ["training", "leadership", "management", "supervisor", "education", "professional"].reduce(
+    (score, term) => score + (haystack.includes(term) ? 4 : 0),
+    0,
+  );
+
+  return phraseScore + termScore > 0 ? phraseScore + termScore + strategicScore + baseScore : 0;
+}
+
+function applicationChecklist({
+  hasSolicitationId,
+  hasDeadline,
+  hasDocuments,
+  hasContact,
+}: {
+  hasSolicitationId: boolean;
+  hasDeadline: boolean;
+  hasDocuments: boolean;
+  hasContact: boolean;
+}) {
+  return [
+    hasSolicitationId ? "Record the solicitation/reference ID in the opportunity tracker." : "Find and record the solicitation/reference ID from the portal.",
+    hasDeadline ? "Confirm the response deadline and set an internal review deadline at least 48 hours earlier." : "Find the response deadline in the posting documents.",
+    hasDocuments ? "Download the solicitation packet, addenda, forms, and pricing templates." : "Locate the solicitation packet and required forms in the portal.",
+    hasContact ? "Save the buyer/contact information and question deadline." : "Find the buyer contact and deadline for written questions.",
+    "Confirm vendor registration, login, insurance, certifications, and required representations.",
+    "Draft the technical response, pricing, assumptions, exceptions, and required attachments for human review.",
+  ];
+}
+
+function isPastDeadline(deadline?: string) {
+  const parsed = parseDeadlineDate(deadline);
+  if (!parsed) {
+    return false;
+  }
+
+  const endOfDeadline = new Date(parsed);
+  endOfDeadline.setHours(23, 59, 59, 999);
+  return endOfDeadline.getTime() < Date.now();
+}
+
+function parseDeadlineDate(deadline?: string) {
+  if (!deadline) {
+    return undefined;
+  }
+
+  const isoLikeMatch = deadline.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (isoLikeMatch) {
+    const year = Number(isoLikeMatch[1]);
+    const month = Number(isoLikeMatch[2]);
+    const day = Number(isoLikeMatch[3]);
+    if (!year || !month || !day) {
+      return undefined;
+    }
+
+    return new Date(year, month - 1, day);
+  }
+
+  const numericMatch = deadline.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (numericMatch) {
+    const month = Number(numericMatch[1]);
+    const day = Number(numericMatch[2]);
+    const year = Number(numericMatch[3]);
+    if (!month || !day || !year) {
+      return undefined;
+    }
+
+    return new Date(year, month - 1, day);
+  }
+
+  const namedMatch = deadline.match(
+    /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),\s*(\d{4})\b/i,
+  );
+  if (!namedMatch) {
+    return undefined;
+  }
+
+  const month = [
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+  ].indexOf(namedMatch[1].toLowerCase());
+  const day = Number(namedMatch[2]);
+  const year = Number(namedMatch[3]);
+
+  return month >= 0 && day && year ? new Date(year, month, day) : undefined;
+}
+
+function matchesFilter({
+  sourceState,
+  sourceLevel,
+  state,
+  level,
+}: {
+  sourceState: string;
+  sourceLevel: string;
+  state: string;
+  level: string;
+}) {
+  const stateMatch = state === "All" || state === sourceState;
+  const levelMatch = level === "All" || level === sourceLevel;
+  return stateMatch && levelMatch;
+}
+
+async function runLimited<T>(tasks: Array<() => Promise<T>>, concurrency: number) {
+  const results: T[] = [];
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < tasks.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await tasks[currentIndex]();
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, () => worker()));
+  return results;
+}
+
+async function runBonfireQueued<T>(task: () => Promise<T>): Promise<T> {
+  const globalStore = globalThis as typeof globalThis & { __govContractFinderBonfireQueue?: Promise<void> };
+  const previous = globalStore.__govContractFinderBonfireQueue ?? Promise.resolve();
+  let release!: () => void;
+  globalStore.__govContractFinderBonfireQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  await previous.catch(() => undefined);
+  try {
+    return await task();
+  } finally {
+    await delay(BONFIRE_QUEUE_GAP_MS);
+    release();
+  }
+}
+
+function removePending(pendingSources: string[], sourceName: string) {
+  const index = pendingSources.findIndex((source) => source === sourceName);
+  if (index >= 0) {
+    pendingSources.splice(index, 1);
+  }
+}
+
+function hasOpportunityLanguage(value: string) {
+  return /\b(bid|bids|rfp|rfq|rfi|itb|solicitation|solicitations)\b/i.test(value);
+}
+
+function safeAbsoluteUrl(href: string, baseUrl: string) {
+  try {
+    return new URL(href, baseUrl).toString();
+  } catch {
+    return undefined;
+  }
+}
+
+function safeOrigin(url: string) {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return undefined;
+  }
+}
+
+function htmlToText(html: string) {
+  return cleanText(
+    html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<svg[\s\S]*?<\/svg>/gi, " ")
+      .replace(/<noscript[\s\S]*?<\/noscript>/gi, " "),
+  );
+}
+
+async function fetchPublicPage(url: string) {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await fetchPublicPageOnce(url);
+    } catch (error) {
+      lastError = error;
+      if (attempt < 3) {
+        await delay(250 * attempt);
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+async function fetchPublicPageOnce(url: string) {
+  const controller = new AbortController();
+  const timeout = windowlessTimeout(() => controller.abort(), 8000);
+
+  try {
+    return await fetch(url, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 GovContractFinder/0.1",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function windowlessTimeout(callback: () => void, ms: number) {
+  return setTimeout(callback, ms);
+}
+
+function errorMessage(error: unknown) {
+  if (error instanceof Error) {
+    const cause = error.cause instanceof Error ? `: ${error.cause.message}` : "";
+    return error.name === "AbortError" ? "timed out after 8 seconds" : `${error.message}${cause}`;
+  }
+
+  return "search failed";
+}
+
+function cleanText(value: string) {
+  return decodeHtml(value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim());
+}
+
+function decodeHtml(value: string) {
+  return value
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+function formatSamDate(date: Date) {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${month}/${day}/${date.getFullYear()}`;
+}
+
+function stringValue(value: unknown) {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function getGlobalMap<T>(key: string): Map<string, T> {
+  const globalStore = globalThis as typeof globalThis & Record<string, Map<string, T> | undefined>;
+  globalStore[key] ??= new Map<string, T>();
+  return globalStore[key];
+}

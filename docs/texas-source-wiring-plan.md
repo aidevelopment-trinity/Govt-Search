@@ -1,0 +1,137 @@
+# Texas Source Wiring Plan
+
+Goal: every Texas source must either search a real opportunity system or be clearly marked as a non-opportunity reference resource. Do not treat a generic page fetch as a completed connector unless it extracts current opportunities from that buyer's official source.
+
+## Working Connectors
+
+These are wired to live official searches today.
+
+### Statewide ESBD
+
+- Texas Electronic State Business Daily: official ESBD opportunity search.
+
+### ESBD Buyer/Member Filters
+
+These sources are searched through official ESBD buyer/member numbers, with exact post-response filtering to prevent loose ESBD matches from being mislabeled.
+
+- Texas Health and Human Services Commission Contracting: `529`
+- Texas Department of Criminal Justice Business and Finance: `696`
+- Texas Department of Transportation Business: `601`
+- Texas Workforce Commission Procurement: `320`
+- Travis County Purchasing: `C2270`
+- City of Dallas Procurement Services: `M5572`
+- Dallas County Purchasing: `C0570`
+- City of San Antonio Procurement: `M0152`
+- City of Irving Purchasing: `M0570`
+- City of Waco Purchasing: `M1612`
+- City of Odessa Purchasing: `M0680`
+- Williamson County Purchasing: `C2460`
+- City of Georgetown Purchasing: `M2461`
+- City of Grapevine Purchasing: `M2201`
+- City of Galveston Purchasing: `M0843`
+- San Antonio International Airport Business: `M0152`
+- University of Texas System Supplier Information: `720`
+- Texas A&M University System Doing Business: `711`, `715`, `751`, `555`, `556`, `712`, `716`, `576`
+- University of Texas at Austin Purchasing: `721`
+- Texas A&M University Purchasing: `711`
+- University of Houston Purchasing: `730`
+- Texas Tech University System Procurement: `768`, `733`, `739`, `774`
+- Dallas ISD Procurement: `S5573`
+- Fort Worth ISD Purchasing: `S2209`
+- Alamo Colleges Purchasing: `J0150`
+- Austin Community College Purchasing: `J2270`
+- Lone Star College Purchasing: `J1010`
+- North Central Texas Council of Governments Purchasing: `G2200`
+- Houston-Galveston Area Council Procurement: `G1010`
+- Lower Colorado River Authority Business: `K0042`
+
+### Custom Page Parser
+
+- The Woodlands Township Bids: official open-bids page parser.
+- City of Austin Purchasing: official Austin Finance Online active solicitation list plus detail-page parser.
+- City of Frisco Purchasing: official current-bids page parser, used as a stable fallback even though Frisco also posts to Bonfire.
+
+### Bonfire Public API
+
+These sources are wired to Bonfire's public open-opportunities JSON endpoint with queued requests and response caching to avoid portal rate limits.
+
+- City of Dallas Procurement Services
+- Harris County Purchasing
+- City of Fort Worth Purchasing
+- City of Round Rock Purchasing
+- City of McKinney Purchasing
+- Denton County Purchasing
+- City of Midland Purchasing
+- Austin ISD Purchasing
+- DFW Airport Solicitations
+- DART Procurement
+
+## Reference Resources
+
+These are important for vendor setup, alerts, and eligibility, but they are not opportunity-search feeds.
+
+- Texas Statewide Procurement Division
+- Texas Centralized Master Bidders List
+- Texas HUB Program
+
+## Remaining Texas Direct Connectors
+
+These sources still need source-specific connector work. The next pass should identify the underlying portal family first, then implement and test one family at a time.
+
+### Priority 1: Large Local Buyers
+
+- City of Austin Purchasing: wired through Austin Finance Online.
+- City of Fort Worth Purchasing: wired through Bonfire.
+- Tarrant County Purchasing: official page links to `https://tarrantcountytx.ionwave.net/Login.aspx`; implement IonWave connector.
+- Bexar County Purchasing: official page links to Infor supplier portal and CivCast for road/repair/construction; identify current solicitation feed for professional services.
+- City of Houston Procurement: official page links to Beacon; Beacon returns AWS WAF human verification to server-side requests, so this needs a non-CAPTCHA feed or approved vendor-alert workflow.
+- Harris County Purchasing: wired through Bonfire.
+- City of Plano Purchasing: source URL currently resolves to unrelated CivicEngage content; find current purchasing/opportunity URL.
+- City of Frisco Purchasing: wired through official current-bids page, with Bonfire available after cooldown.
+- Collin County Purchasing: first static fetch returned no parseable content; inspect with browser or alternate endpoint.
+- City of Denton Purchasing: source URL currently resolves to unrelated content; find current purchasing/opportunity URL.
+- Denton County Purchasing: wired through Bonfire; currently returns zero open projects.
+
+### Priority 2: High-Income / Fast-Growth Local Buyers
+
+- City of Midland Purchasing: wired through Bonfire; currently returns zero open projects.
+- Midland County Purchasing
+- Ector County Purchasing
+- City of Sugar Land Purchasing
+- City of Round Rock Purchasing: wired through Bonfire.
+- City of McKinney Purchasing: wired through Bonfire.
+- City of Allen Purchasing
+- City of Addison Purchasing
+
+### Priority 3: Airports, Transit, Utilities, Ports, Authorities
+
+- DFW Airport Solicitations: wired through Bonfire.
+- Austin-Bergstrom Airport Business
+- Houston Airport System Business
+- DART Procurement: wired through Bonfire.
+- CapMetro Procurement
+- VIA Metropolitan Transit Procurement
+- Houston METRO Procurement
+- North Texas Tollway Authority Procurement
+- Capital Area Council of Governments Procurement
+- San Antonio River Authority Business Opportunities
+- CPS Energy Procurement and Suppliers
+- Austin Energy Vendor Information
+- San Antonio Water System Purchasing
+- North Texas Municipal Water District Business Opportunities
+- Port Houston Procurement
+
+### Priority 4: Education Sources Not Covered By ESBD
+
+- Austin ISD Purchasing: wired through Bonfire.
+- Houston ISD Procurement
+- San Antonio ISD Purchasing
+- Dallas College Supplier Information
+
+## Next Connector Families To Investigate
+
+1. Bonfire portals: working for Dallas, Harris County, Fort Worth, Frisco, Round Rock, McKinney, Austin ISD, and DFW Airport. Keep adding confirmed Texas Bonfire hosts one at a time.
+2. IonWave portals: start with City of Irving, then map common Texas city, county, school, and college IonWave hosts.
+3. CivicPlus/official HTML pages: implement parsers only where the page contains current bid rows or downloadable bid documents.
+4. Airport/transit/utility portals: Port Houston uses Workday Strategic Sourcing; Houston uses Beacon; Bexar uses Infor/CivCast; Addison uses BidNet Direct. Each needs a specific connector or non-scraping alert workflow if blocked.
+5. Blocked sites: CAPCOG currently blocks server-side requests with Cloudflare; do not mark it working until a non-blocked official feed or approved workflow exists.

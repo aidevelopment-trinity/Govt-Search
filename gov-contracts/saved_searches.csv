@@ -1,0 +1,31 @@
+priority,scope,portal,state,search_term,code_type,code,why_it_matters,status
+1,Federal,SAM.gov,US,leadership development,Keyword,,Core service line,Not started
+1,Federal,SAM.gov,US,management training,Keyword,,Core service line,Not started
+1,Federal,SAM.gov,US,supervisor training,Keyword,,Common public-sector training need,Not started
+1,Federal,SAM.gov,US,professional development,Keyword,,Broad training language used by agencies,Not started
+1,Federal,SAM.gov,US,organizational development,Keyword,,Consulting/training crossover,Not started
+1,Federal,SAM.gov,US,executive coaching,Keyword,,Higher-value service line,Not started
+1,Federal,SAM.gov,US,change management,Keyword,,Often tied to agency modernization,Not started
+1,Federal,SAM.gov,US,workforce development,Keyword,,May find state/federal training programs,Not started
+1,Federal,SAM.gov,US,conflict resolution,Keyword,,Training/workplace service line,Not started
+1,Federal,SAM.gov,US,communication training,Keyword,,Training/workplace service line,Not started
+1,Federal,SAM.gov,US,,NAICS,611430,Professional and Management Development Training,Not started
+1,Federal,SAM.gov,US,,NAICS,541611,Administrative Management and General Management Consulting,Not started
+1,Federal,SAM.gov,US,,NAICS,541612,Human Resources Consulting Services,Not started
+2,Federal,SAM.gov,US,,NAICS,541618,Other Management Consulting Services,Not started
+1,Federal,SAM.gov,US,,PSC,U008,Training/Curriculum Development,Not started
+1,State,Texas ESBD,TX,leadership training,Keyword,,Start broad; refine after alert volume,Not started
+1,State,Texas ESBD,TX,management training,Keyword,,Core service line,Not started
+1,State,Texas ESBD,TX,supervisor training,Keyword,,Core public-sector need,Not started
+1,State,Texas ESBD,TX,professional development,Keyword,,Broad training language,Not started
+1,State,Texas ESBD,TX,organizational development,Keyword,,Consulting/training crossover,Not started
+1,State,Texas ESBD,TX,executive coaching,Keyword,,Higher-value service line,Not started
+1,State,Texas ESBD,TX,strategic planning,Keyword,,Often local-government consulting,Not started
+1,State,Texas ESBD,TX,employee engagement,Keyword,,HR/OD service line,Not started
+1,State,Texas ESBD,TX,public safety leadership,Keyword,,Police/fire/corrections leadership training,Not started
+2,State,Texas ESBD,TX,human resources consulting,Keyword,,Related service line,Not started
+2,State,Texas ESBD,TX,training curriculum,Keyword,,PSC U008-like language,Not started
+1,State,Florida MFMP,FL,leadership development,Keyword,,Mirror federal/core terms,Not started
+1,State,Tennessee CPO,TN,leadership development,Keyword,,Mirror federal/core terms,Not started
+1,State,NC eVP,NC,leadership development,Keyword,,Mirror federal/core terms,Not started
+1,State,Georgia Procurement Registry,GA,leadership development,Keyword,,Mirror federal/core terms,Not started
