@@ -28,6 +28,7 @@ export async function getProcurementSources() {
 
 async function findProcurementSourcesCsv() {
   const candidates = [
+    path.resolve(process.cwd(), "data/procurement_sources.csv"),
     path.resolve(process.cwd(), "gov-contracts/procurement_sources.csv"),
     path.resolve(process.cwd(), "../gov-contracts/procurement_sources.csv"),
     path.resolve(process.cwd(), "../../gov-contracts/procurement_sources.csv"),
