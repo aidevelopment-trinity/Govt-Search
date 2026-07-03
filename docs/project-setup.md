@@ -27,6 +27,9 @@ or Supabase account.
 - Build command: `npm run build`.
 - Install command: `npm install`.
 - Add environment variables from `.env.example`.
+- To password-protect the site, set:
+  - `APP_BASIC_AUTH_USERNAME`
+  - `APP_BASIC_AUTH_PASSWORD`
 
 ## Supabase
 

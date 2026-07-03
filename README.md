@@ -15,6 +15,8 @@ apply. It does not automatically submit bids.
 - Combined search UI for one concept across connected sources.
 - Result details with due dates, budget notes when available, source links,
   document links, and an application checklist.
+- Saved proposal tracking through Supabase.
+- Optional site-wide password protection through Vercel environment variables.
 
 ## Repository Layout
 
@@ -42,6 +44,7 @@ Then open `http://localhost:3000`.
   the dedicated project account.
 - SAM.gov API key: stored only in `.env.local` locally and Vercel environment
   variables in production.
+- App password: set `APP_BASIC_AUTH_PASSWORD` in Vercel to protect the site.
 
 ## Account Safety Rule
 

@@ -121,6 +121,27 @@ export async function trackOpportunity(result: UnifiedSearchResult) {
   });
 }
 
+export async function listTrackedOpportunities() {
+  return supabaseRequest<
+    Array<{
+      id: string;
+      title: string;
+      buyer: string | null;
+      source_name: string;
+      source_state: string | null;
+      deadline: string | null;
+      budget: string | null;
+      pursuit_status: string;
+      opportunity_url: string;
+      portal_url: string | null;
+      created_at: string;
+    }>
+  >("tracked_opportunities", {
+    query:
+      "?select=id,title,buyer,source_name,source_state,deadline,budget,pursuit_status,opportunity_url,portal_url,created_at&order=created_at.desc&limit=20",
+  });
+}
+
 export async function recordSourceHealth(items: SourceHealthInput[]) {
   if (items.length === 0) {
     return { ok: true, configured: Boolean(getSupabaseConfig()), data: [] };

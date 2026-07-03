@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import type { UnifiedSearchResult } from "@/lib/gov-types";
-import { trackOpportunity } from "@/lib/supabase-admin";
+import { listTrackedOpportunities, trackOpportunity } from "@/lib/supabase-admin";
+
+export async function GET() {
+  const result = await listTrackedOpportunities();
+  const status = result.ok ? 200 : result.configured ? 502 : 503;
+  return NextResponse.json(result, { status });
+}
 
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as UnifiedSearchResult | null;

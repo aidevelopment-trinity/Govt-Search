@@ -14,11 +14,12 @@ import {
   Filter,
   Landmark,
   Link2,
+  RefreshCw,
   Save,
   Search,
   ShieldCheck,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ProcurementSource, UnifiedSearchResult } from "@/lib/gov-types";
 
 type UnifiedSearchResponse = {
@@ -35,6 +36,20 @@ type UnifiedSearchResponse = {
   pendingSources: string[];
   errors: string[];
   message?: string;
+};
+
+type SavedProposal = {
+  id: string;
+  title: string;
+  buyer: string | null;
+  source_name: string;
+  source_state: string | null;
+  deadline: string | null;
+  budget: string | null;
+  pursuit_status: string;
+  opportunity_url: string;
+  portal_url: string | null;
+  created_at: string;
 };
 
 const levelOptions = ["All", "Federal", "State", "Local", "Adjacent", "Education"];
@@ -56,6 +71,8 @@ export function GovContractsShell({
   );
   const [searchBusy, setSearchBusy] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error" | "not-configured">("idle");
+  const [savedProposals, setSavedProposals] = useState<SavedProposal[]>([]);
+  const [savedProposalsStatus, setSavedProposalsStatus] = useState<"idle" | "loading" | "loaded" | "error" | "not-configured">("idle");
 
   const stateOptions = useMemo(() => ["All", ...Array.from(new Set(sources.map((source) => source.state))).sort()], [sources]);
   const sourceCoverage = useMemo(() => {
@@ -82,6 +99,27 @@ export function GovContractsShell({
         searchResponse.errors.length === 1 ? "issue" : "issues"
       }`
     : "Ready";
+
+  useEffect(() => {
+    void loadSavedProposals();
+  }, []);
+
+  async function loadSavedProposals() {
+    setSavedProposalsStatus("loading");
+    try {
+      const response = await fetch("/api/gov/tracked-opportunities");
+      const data = (await response.json()) as { ok: boolean; configured?: boolean; data?: SavedProposal[] };
+
+      if (data.ok) {
+        setSavedProposals(data.data ?? []);
+        setSavedProposalsStatus("loaded");
+      } else {
+        setSavedProposalsStatus(data.configured === false ? "not-configured" : "error");
+      }
+    } catch {
+      setSavedProposalsStatus("error");
+    }
+  }
 
   async function runSearch(nextQuery = query) {
     const concept = nextQuery.trim();
@@ -270,7 +308,7 @@ export function GovContractsShell({
 
             <div className="divide-y divide-line">
               {visibleResults.slice(0, 80).map((result) => (
-                <ResultRow key={result.id} result={result} />
+                <ResultRow key={result.id} result={result} onSaved={() => void loadSavedProposals()} />
               ))}
               {visibleResults.length === 0 ? (
                 <div className="px-4 py-10 text-center">
@@ -285,6 +323,46 @@ export function GovContractsShell({
         </div>
 
         <aside className="space-y-4">
+          <section className="rounded-md border border-line bg-white p-4 shadow-panel">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold">Saved Proposals</h2>
+                <p className="text-xs text-slate-500">{savedProposalsStatusLabel(savedProposalsStatus)}</p>
+              </div>
+              <button
+                className="inline-flex size-8 items-center justify-center rounded-md border border-line text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+                type="button"
+                disabled={savedProposalsStatus === "loading"}
+                onClick={() => void loadSavedProposals()}
+                aria-label="Refresh saved proposals"
+              >
+                <RefreshCw className={`size-4 ${savedProposalsStatus === "loading" ? "animate-spin" : ""}`} />
+              </button>
+            </div>
+            {savedProposals.length > 0 ? (
+              <div className="space-y-2">
+                {savedProposals.slice(0, 8).map((proposal) => (
+                  <a
+                    key={proposal.id}
+                    className="block rounded-md border border-line bg-slate-50 px-3 py-2 hover:border-signal"
+                    href={proposal.opportunity_url}
+                  >
+                    <p className="line-clamp-2 text-sm font-medium text-ink">{proposal.title}</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {proposal.source_name}
+                      {proposal.source_state ? ` · ${proposal.source_state}` : ""}
+                      {proposal.deadline ? ` · Due ${proposal.deadline}` : ""}
+                    </p>
+                  </a>
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-md border border-line bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                {savedProposalsStatus === "not-configured" ? "Connect Supabase to save proposals." : "No saved proposals yet."}
+              </p>
+            )}
+          </section>
+
           <section className="rounded-md border border-line bg-white p-4 shadow-panel">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-base font-semibold">Run Status</h2>
@@ -344,7 +422,7 @@ export function GovContractsShell({
   );
 }
 
-function ResultRow({ result }: { result: UnifiedSearchResult }) {
+function ResultRow({ result, onSaved }: { result: UnifiedSearchResult; onSaved: () => void }) {
   const [expanded, setExpanded] = useState(false);
   const [trackStatus, setTrackStatus] = useState<"idle" | "saving" | "saved" | "error" | "not-configured">("idle");
   const checklist = result.applicationChecklist?.length ? result.applicationChecklist : fallbackChecklist(result);
@@ -361,6 +439,7 @@ function ResultRow({ result }: { result: UnifiedSearchResult }) {
       const data = (await response.json()) as { ok: boolean; configured?: boolean };
       if (data.ok) {
         setTrackStatus("saved");
+        onSaved();
       } else {
         setTrackStatus(data.configured === false ? "not-configured" : "error");
       }
@@ -522,11 +601,19 @@ function saveStatusLabel(status: "idle" | "saving" | "saved" | "error" | "not-co
 }
 
 function trackStatusLabel(status: "idle" | "saving" | "saved" | "error" | "not-configured") {
-  if (status === "saving") return "Tracking";
-  if (status === "saved") return "Tracked";
+  if (status === "saving") return "Saving";
+  if (status === "saved") return "Saved";
   if (status === "not-configured") return "Connect Supabase";
-  if (status === "error") return "Track failed";
-  return "Track";
+  if (status === "error") return "Save failed";
+  return "Save Proposal";
+}
+
+function savedProposalsStatusLabel(status: "idle" | "loading" | "loaded" | "error" | "not-configured") {
+  if (status === "loading") return "Loading";
+  if (status === "loaded") return "Latest saved list";
+  if (status === "not-configured") return "Supabase not connected";
+  if (status === "error") return "Could not load";
+  return "Ready";
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
