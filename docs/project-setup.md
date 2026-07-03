@@ -32,7 +32,18 @@ or Supabase account.
 
 - Create one Supabase project under the correct account.
 - Store the project URL and keys in Vercel, not in git.
-- Add database tables after the production data model is finalized.
+- Run the SQL in `docs/supabase-schema.sql` from the Supabase SQL Editor.
+- Add these Vercel environment variables:
+  - `NEXT_PUBLIC_SUPABASE_URL`
+  - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+  - `SUPABASE_SERVICE_ROLE_KEY`
+- Redeploy the Vercel project after adding the variables.
+
+The app uses Supabase for:
+
+- Saved searches.
+- Tracked opportunities.
+- Source health checks from each search run.
 
 ## First Push Checklist
 

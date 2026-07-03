@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getProcurementSources } from "@/lib/gov-contracts";
+import { recordSourceHealth } from "@/lib/supabase-admin";
 import { searchConnectedSources } from "@/lib/source-adapters";
 
 export async function GET(request: Request) {
@@ -23,6 +24,20 @@ export async function GET(request: Request) {
 
   const sources = await getProcurementSources();
   const connectedSearch = await searchConnectedSources({ query, state, level, sources });
+  const errorSources = new Set(connectedSearch.errors.map((error) => error.split(":")[0]));
+
+  await recordSourceHealth([
+    ...connectedSearch.searchedSources.map((sourceName) => ({
+      sourceName,
+      healthStatus: errorSources.has(sourceName) ? ("error" as const) : ("ok" as const),
+      message: connectedSearch.errors.find((error) => error.startsWith(`${sourceName}:`)) ?? "Search completed.",
+    })),
+    ...connectedSearch.pendingSources.map((sourceName) => ({
+      sourceName,
+      healthStatus: "pending" as const,
+      message: "Source is listed but not wired for live search yet.",
+    })),
+  ]);
 
   return NextResponse.json({
     query,

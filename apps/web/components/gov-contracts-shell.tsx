@@ -14,6 +14,7 @@ import {
   Filter,
   Landmark,
   Link2,
+  Save,
   Search,
   ShieldCheck,
 } from "lucide-react";
@@ -54,6 +55,7 @@ export function GovContractsShell({
     () => providedInitialSearchResponse ?? initialSearchResponse("leadership development"),
   );
   const [searchBusy, setSearchBusy] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error" | "not-configured">("idle");
 
   const stateOptions = useMemo(() => ["All", ...Array.from(new Set(sources.map((source) => source.state))).sort()], [sources]);
   const sourceCoverage = useMemo(() => {
@@ -117,6 +119,34 @@ export function GovContractsShell({
       });
     } finally {
       setSearchBusy(false);
+    }
+  }
+
+  async function saveCurrentSearch() {
+    setSaveStatus("saving");
+    try {
+      const response = await fetch("/api/gov/saved-searches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: searchResponse.query,
+          state,
+          level,
+          resultsCount: searchResponse.counts.opportunities,
+          searchedSourcesCount: searchResponse.counts.connected,
+          pendingSourcesCount: searchResponse.counts.pending,
+          errorCount: searchResponse.errors.length,
+        }),
+      });
+
+      const data = (await response.json()) as { ok: boolean; configured?: boolean };
+      if (data.ok) {
+        setSaveStatus("saved");
+      } else {
+        setSaveStatus(data.configured === false ? "not-configured" : "error");
+      }
+    } catch {
+      setSaveStatus("error");
     }
   }
 
@@ -210,6 +240,15 @@ export function GovContractsShell({
                 <Filter className="size-4" />
                 <span>{state} / {level}</span>
               </div>
+              <button
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+                type="button"
+                disabled={!hasSearched || saveStatus === "saving"}
+                onClick={() => void saveCurrentSearch()}
+              >
+                <Save className="size-4" />
+                <span>{saveStatusLabel(saveStatus)}</span>
+              </button>
             </div>
 
             {sourceTabs.length > 1 ? (
@@ -307,8 +346,28 @@ export function GovContractsShell({
 
 function ResultRow({ result }: { result: UnifiedSearchResult }) {
   const [expanded, setExpanded] = useState(false);
+  const [trackStatus, setTrackStatus] = useState<"idle" | "saving" | "saved" | "error" | "not-configured">("idle");
   const checklist = result.applicationChecklist?.length ? result.applicationChecklist : fallbackChecklist(result);
   const documents = result.documents?.filter(Boolean) ?? [];
+
+  async function trackResult() {
+    setTrackStatus("saving");
+    try {
+      const response = await fetch("/api/gov/tracked-opportunities", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(result),
+      });
+      const data = (await response.json()) as { ok: boolean; configured?: boolean };
+      if (data.ok) {
+        setTrackStatus("saved");
+      } else {
+        setTrackStatus(data.configured === false ? "not-configured" : "error");
+      }
+    } catch {
+      setTrackStatus("error");
+    }
+  }
 
   return (
     <article className="px-4 py-3 hover:bg-slate-50">
@@ -329,6 +388,15 @@ function ResultRow({ result }: { result: UnifiedSearchResult }) {
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
+          <button
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+            type="button"
+            disabled={trackStatus === "saving" || trackStatus === "saved"}
+            onClick={() => void trackResult()}
+          >
+            <Save className="size-4" />
+            <span>{trackStatusLabel(trackStatus)}</span>
+          </button>
           <button
             className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
             type="button"
@@ -443,6 +511,22 @@ function fallbackChecklist(result: UnifiedSearchResult) {
     "Confirm vendor registration, submission portal access, insurance, certifications, and required representations.",
     "Draft the technical response, pricing, assumptions, exceptions, and attachments for human review.",
   ];
+}
+
+function saveStatusLabel(status: "idle" | "saving" | "saved" | "error" | "not-configured") {
+  if (status === "saving") return "Saving";
+  if (status === "saved") return "Saved";
+  if (status === "not-configured") return "Connect Supabase";
+  if (status === "error") return "Save failed";
+  return "Save Search";
+}
+
+function trackStatusLabel(status: "idle" | "saving" | "saved" | "error" | "not-configured") {
+  if (status === "saving") return "Tracking";
+  if (status === "saved") return "Tracked";
+  if (status === "not-configured") return "Connect Supabase";
+  if (status === "error") return "Track failed";
+  return "Track";
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
