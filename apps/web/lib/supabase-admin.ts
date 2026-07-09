@@ -25,6 +25,37 @@ type SourceHealthInput = {
   message?: string;
 };
 
+export type TrackedOpportunityRecord = {
+  id: string;
+  title: string;
+  buyer: string | null;
+  source_name: string;
+  source_level: string | null;
+  source_state: string | null;
+  source_type: string | null;
+  opportunity_url: string;
+  portal_url: string | null;
+  fit_score: number | null;
+  opportunity_status: string | null;
+  pursuit_status: string;
+  solicitation_id: string | null;
+  deadline: string | null;
+  posted_date: string | null;
+  budget: string | null;
+  contact: string | null;
+  summary: string | null;
+  next_action: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type UpdateTrackedOpportunityInput = {
+  id: string;
+  pursuitStatus?: string;
+  notes?: string;
+};
+
 function getSupabaseConfig() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -122,23 +153,31 @@ export async function trackOpportunity(result: UnifiedSearchResult) {
 }
 
 export async function listTrackedOpportunities() {
-  return supabaseRequest<
-    Array<{
-      id: string;
-      title: string;
-      buyer: string | null;
-      source_name: string;
-      source_state: string | null;
-      deadline: string | null;
-      budget: string | null;
-      pursuit_status: string;
-      opportunity_url: string;
-      portal_url: string | null;
-      created_at: string;
-    }>
-  >("tracked_opportunities", {
+  return supabaseRequest<TrackedOpportunityRecord[]>("tracked_opportunities", {
     query:
-      "?select=id,title,buyer,source_name,source_state,deadline,budget,pursuit_status,opportunity_url,portal_url,created_at&order=created_at.desc&limit=20",
+      "?select=id,title,buyer,source_name,source_level,source_state,source_type,opportunity_url,portal_url,fit_score,opportunity_status,pursuit_status,solicitation_id,deadline,posted_date,budget,contact,summary,next_action,notes,created_at,updated_at&order=created_at.desc&limit=100",
+  });
+}
+
+export async function updateTrackedOpportunity(input: UpdateTrackedOpportunityInput) {
+  const updates: Record<string, JsonValue> = {};
+
+  if (input.pursuitStatus) {
+    updates.pursuit_status = input.pursuitStatus;
+  }
+
+  if (input.notes !== undefined) {
+    updates.notes = input.notes;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return { ok: false as const, configured: Boolean(getSupabaseConfig()), error: "No tracked opportunity updates were provided." };
+  }
+
+  return supabaseRequest<TrackedOpportunityRecord[]>("tracked_opportunities", {
+    method: "PATCH",
+    query: `?id=eq.${encodeURIComponent(input.id)}`,
+    body: updates,
   });
 }
 

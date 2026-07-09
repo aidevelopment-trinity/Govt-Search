@@ -53,6 +53,15 @@ create table if not exists source_health (
   updated_at timestamptz not null default now()
 );
 
+create index if not exists tracked_opportunities_pursuit_status_idx
+on tracked_opportunities (pursuit_status);
+
+create index if not exists tracked_opportunities_deadline_idx
+on tracked_opportunities (deadline);
+
+create index if not exists tracked_opportunities_created_at_idx
+on tracked_opportunities (created_at desc);
+
 create or replace function touch_updated_at()
 returns trigger as $$
 begin

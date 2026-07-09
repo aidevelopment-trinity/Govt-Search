@@ -16,6 +16,7 @@ apply. It does not automatically submit bids.
 - Result details with due dates, budget notes when available, source links,
   document links, and an application checklist.
 - Saved proposal tracking through Supabase.
+- Saved Proposals dashboard with pursuit statuses and working notes.
 - Optional site-wide password protection through Vercel environment variables.
 
 ## Repository Layout

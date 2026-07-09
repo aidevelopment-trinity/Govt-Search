@@ -46,6 +46,7 @@ The app uses Supabase for:
 
 - Saved searches.
 - Tracked opportunities.
+- Saved proposal status and notes.
 - Source health checks from each search run.
 
 ## First Push Checklist
