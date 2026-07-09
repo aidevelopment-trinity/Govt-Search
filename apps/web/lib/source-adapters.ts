@@ -19,6 +19,7 @@ type ConnectedSearchResponse = {
 };
 
 type SearchTaskResult = { source: string; results: UnifiedSearchResult[]; error?: string };
+type SearchTask = { source: string; run: () => Promise<SearchTaskResult> };
 type SamSearchResult = { results: UnifiedSearchResult[]; error?: string };
 type ConnectorSearchResult = { results: UnifiedSearchResult[]; error?: string };
 
@@ -168,10 +169,16 @@ const SAM_SUCCESS_CACHE_MS = 15 * 60 * 1000;
 const SAM_ERROR_CACHE_MS = 2 * 60 * 1000;
 const SAM_RATE_LIMIT_CACHE_MS = 10 * 60 * 1000;
 const SAM_RETRY_DELAYS_MS = [0, 1500, 4000];
+const SAM_FETCH_TIMEOUT_MS = 12000;
 const BONFIRE_SUCCESS_CACHE_MS = 10 * 60 * 1000;
 const BONFIRE_ERROR_CACHE_MS = 90 * 1000;
 const BONFIRE_RATE_LIMIT_CACHE_MS = 5 * 60 * 1000;
 const BONFIRE_QUEUE_GAP_MS = 2500;
+const BONFIRE_FETCH_TIMEOUT_MS = 12000;
+const SEARCH_TASK_TIMEOUT_MS = 28000;
+const SEARCH_TOTAL_TIMEOUT_MS = 34000;
+const SEARCH_TASK_CONCURRENCY = 10;
+const MAX_RESULTS = 120;
 
 const samCache = getGlobalMap<{ expiresAt: number; value: SamSearchResult }>("__govContractFinderSamCache");
 const samInFlight = getGlobalMap<Promise<SamSearchResult>>("__govContractFinderSamInFlight");
@@ -183,7 +190,7 @@ const bonfireProjectsInFlight = getGlobalMap<Promise<ConnectorSearchResult & { p
 );
 
 export async function searchConnectedSources({ query, state, level, sources }: SearchFilters): Promise<ConnectedSearchResponse> {
-  const tasks: Array<() => Promise<SearchTaskResult>> = [];
+  const tasks: SearchTask[] = [];
   const searchedSources: string[] = [];
   const pendingSources = sources
     .filter((source) => matchesFilter({ sourceState: source.state, sourceLevel: source.level, state, level }))
@@ -194,13 +201,13 @@ export async function searchConnectedSources({ query, state, level, sources }: S
     searchedSources.push("SAM.gov Contract Opportunities");
     removePending(pendingSources, "SAM.gov Contract Opportunities");
     removePending(pendingSources, "SAM.gov Get Opportunities API");
-    tasks.push(() => searchSam(query));
+    tasks.push({ source: "SAM.gov Contract Opportunities", run: () => searchSam(query) });
   }
 
   if (matchesFilter({ sourceState: "TX", sourceLevel: "State", state, level })) {
     searchedSources.push("Texas Electronic State Business Daily");
     removePending(pendingSources, "Texas Electronic State Business Daily");
-    tasks.push(() => searchTexasEsbd(query));
+    tasks.push({ source: "Texas Electronic State Business Daily", run: () => searchTexasEsbd(query) });
 
   }
 
@@ -209,8 +216,14 @@ export async function searchConnectedSources({ query, state, level, sources }: S
     searchedSources.push("Tennessee ITB Opportunities");
     removePending(pendingSources, "Tennessee RFP Opportunities");
     removePending(pendingSources, "Tennessee ITB Opportunities");
-    tasks.push(() => searchTennesseePage(query, "Tennessee RFP Opportunities", TENNESSEE_RFP_URL, "RFP/RFI/RFQ"));
-    tasks.push(() => searchTennesseePage(query, "Tennessee ITB Opportunities", TENNESSEE_ITB_URL, "ITB"));
+    tasks.push({
+      source: "Tennessee RFP Opportunities",
+      run: () => searchTennesseePage(query, "Tennessee RFP Opportunities", TENNESSEE_RFP_URL, "RFP/RFI/RFQ"),
+    });
+    tasks.push({
+      source: "Tennessee ITB Opportunities",
+      run: () => searchTennesseePage(query, "Tennessee ITB Opportunities", TENNESSEE_ITB_URL, "ITB"),
+    });
   }
 
   for (const source of sources) {
@@ -223,14 +236,14 @@ export async function searchConnectedSources({ query, state, level, sources }: S
       if (source.source_name === "City of Austin Purchasing") {
         searchedSources.push("City of Austin Purchasing");
         removePending(pendingSources, "City of Austin Purchasing");
-        tasks.push(() => searchAustinSolicitations(query));
+        tasks.push({ source: "City of Austin Purchasing", run: () => searchAustinSolicitations(query) });
         continue;
       }
 
       if (source.source_name === "City of Frisco Purchasing") {
         searchedSources.push("City of Frisco Purchasing");
         removePending(pendingSources, "City of Frisco Purchasing");
-        tasks.push(() => searchFriscoCurrentBids(query));
+        tasks.push({ source: "City of Frisco Purchasing", run: () => searchFriscoCurrentBids(query) });
         continue;
       }
 
@@ -238,7 +251,7 @@ export async function searchConnectedSources({ query, state, level, sources }: S
       if (texasBonfireSource) {
         searchedSources.push(texasBonfireSource.sourceName);
         removePending(pendingSources, texasBonfireSource.sourceName);
-        tasks.push(() => searchBonfire(query, texasBonfireSource));
+        tasks.push({ source: texasBonfireSource.sourceName, run: () => searchBonfire(query, texasBonfireSource) });
         continue;
       }
 
@@ -246,7 +259,7 @@ export async function searchConnectedSources({ query, state, level, sources }: S
       if (texasAgencySource) {
         searchedSources.push(texasAgencySource.sourceName);
         removePending(pendingSources, texasAgencySource.sourceName);
-        tasks.push(() => searchTexasAgencyEsbd(query, texasAgencySource));
+        tasks.push({ source: texasAgencySource.sourceName, run: () => searchTexasAgencyEsbd(query, texasAgencySource) });
         continue;
       }
     }
@@ -254,7 +267,7 @@ export async function searchConnectedSources({ query, state, level, sources }: S
     if (matchesFilter({ sourceState: source.state, sourceLevel: source.level, state, level }) && source.source_name === "The Woodlands Township Bids") {
       searchedSources.push("The Woodlands Township Bids");
       removePending(pendingSources, "The Woodlands Township Bids");
-      tasks.push(() => searchTheWoodlands(query));
+      tasks.push({ source: "The Woodlands Township Bids", run: () => searchTheWoodlands(query) });
       continue;
     }
 
@@ -272,11 +285,13 @@ export async function searchConnectedSources({ query, state, level, sources }: S
 
     searchedSources.push(source.source_name);
     removePending(pendingSources, source.source_name);
-    tasks.push(() => searchOfficialSource(query, source));
+    tasks.push({ source: source.source_name, run: () => searchOfficialSource(query, source) });
   }
 
-  const settled = await runLimited(tasks, 8);
-  const results = settled.flatMap((item) => item.results).sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+  const settled = await runSearchTasks(tasks, SEARCH_TASK_CONCURRENCY, SEARCH_TOTAL_TIMEOUT_MS);
+  const results = dedupeResults(settled.flatMap((item) => item.results))
+    .sort((a, b) => resultRankScore(b) - resultRankScore(a) || a.title.localeCompare(b.title))
+    .slice(0, MAX_RESULTS);
   const errors = settled.flatMap((item) => (item.error ? [`${item.source}: ${item.error}`] : []));
 
   return {
@@ -370,11 +385,11 @@ async function searchSam(query: string): Promise<{ source: string; results: Unif
 
   const today = new Date();
   const prior = new Date(today);
-  prior.setDate(today.getDate() - 30);
+  prior.setDate(today.getDate() - 90);
 
   const params = new URLSearchParams({
     api_key: apiKey,
-    limit: "20",
+    limit: "50",
     keyword: query,
     postedFrom: formatSamDate(prior),
     postedTo: formatSamDate(today),
@@ -418,12 +433,16 @@ async function fetchSamSearch(url: string, query: string, terms: string[]): Prom
       await delay(delayMs);
     }
 
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(
+      url,
+      {
       cache: "no-store",
       headers: {
         Accept: "application/json",
       },
-    });
+      },
+      SAM_FETCH_TIMEOUT_MS,
+    );
 
     if (response.status === 429 && attempt < SAM_RETRY_DELAYS_MS.length - 1) {
       continue;
@@ -965,7 +984,9 @@ async function getBonfireProjects(source: BonfireSource): Promise<ConnectorSearc
 async function fetchBonfireProjects(source: BonfireSource): Promise<ConnectorSearchResult & { projects?: BonfireProject[] }> {
   try {
     const endpoint = new URL("/PublicPortal/getOpenPublicOpportunitiesSectionData", source.portalUrl).toString();
-    const response = await fetch(endpoint, {
+    const response = await fetchWithTimeout(
+      endpoint,
+      {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 GovContractFinder/0.1",
@@ -974,7 +995,9 @@ async function fetchBonfireProjects(source: BonfireSource): Promise<ConnectorSea
         Referer: source.portalUrl,
       },
       cache: "no-store",
-    });
+      },
+      BONFIRE_FETCH_TIMEOUT_MS,
+    );
 
     if (response.status === 429) {
       return { results: [], error: "Bonfire rate limited the portal request; connector is queued and cached, retry after cooldown." };
@@ -1378,15 +1401,68 @@ function scoreOpportunity(haystack: string, terms: string[], baseScore: number) 
     return baseScore;
   }
 
-  const phrase = terms.join(" ");
-  const phraseScore = haystack.includes(phrase) ? 40 : 0;
-  const termScore = terms.reduce((score, term) => score + (haystack.includes(term) ? 12 : 0), 0);
-  const strategicScore = ["training", "leadership", "management", "supervisor", "education", "professional"].reduce(
+  const phraseTerms = terms.filter((term) => term.includes(" "));
+  const singleTerms = terms.filter((term) => !term.includes(" "));
+  const phraseScore = phraseTerms.reduce((score, phrase) => score + (haystack.includes(phrase) ? 34 : 0), 0);
+  const termScore = singleTerms.reduce((score, term) => score + (haystack.includes(term) ? 10 : 0), 0);
+  const strategicScore = [
+    "training",
+    "leadership",
+    "management",
+    "supervisor",
+    "education",
+    "professional",
+    "coaching",
+    "workforce",
+    "organizational",
+    "learning",
+    "development",
+  ].reduce(
     (score, term) => score + (haystack.includes(term) ? 4 : 0),
     0,
   );
 
   return phraseScore + termScore > 0 ? phraseScore + termScore + strategicScore + baseScore : 0;
+}
+
+function resultRankScore(result: UnifiedSearchResult) {
+  return (
+    result.score +
+    (result.deadline ? 8 : 0) +
+    (result.solicitationId ? 6 : 0) +
+    (result.documents?.length ? 5 : 0) +
+    (result.contact ? 4 : 0) +
+    (result.budget ? 4 : 0) +
+    (result.summary.length > 80 ? 3 : 0)
+  );
+}
+
+function dedupeResults(results: UnifiedSearchResult[]) {
+  const deduped = new Map<string, UnifiedSearchResult>();
+
+  for (const result of results) {
+    const key = resultDedupKey(result);
+    const existing = deduped.get(key);
+    if (!existing || resultRankScore(result) > resultRankScore(existing)) {
+      deduped.set(key, result);
+    }
+  }
+
+  return Array.from(deduped.values());
+}
+
+function resultDedupKey(result: UnifiedSearchResult) {
+  const normalizedSolicitation = result.solicitationId?.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (normalizedSolicitation && normalizedSolicitation.length > 3) {
+    return `${result.sourceState}:${normalizedSolicitation}`;
+  }
+
+  const normalizedUrl = result.url.toLowerCase().replace(/[?#].*$/, "");
+  if (normalizedUrl && normalizedUrl !== result.portalUrl.toLowerCase()) {
+    return normalizedUrl;
+  }
+
+  return `${result.sourceState}:${result.buyer}:${result.title}`.toLowerCase().replace(/\s+/g, " ");
 }
 
 function applicationChecklist({
@@ -1509,6 +1585,100 @@ async function runLimited<T>(tasks: Array<() => Promise<T>>, concurrency: number
   return results;
 }
 
+async function runSearchTasks(tasks: SearchTask[], concurrency: number, budgetMs: number) {
+  const results: SearchTaskResult[] = [];
+  const completedSources = new Set<string>();
+  let nextIndex = 0;
+  let active = 0;
+  let resolved = false;
+
+  return new Promise<SearchTaskResult[]>((resolve) => {
+    const finish = () => {
+      if (resolved) {
+        return;
+      }
+
+      resolved = true;
+      const budgetErrors = tasks
+        .filter((task) => !completedSources.has(task.source))
+        .map((task) => ({
+          source: task.source,
+          results: [],
+          error: `not completed within ${Math.round(budgetMs / 1000)} second search budget; returned partial results`,
+        }));
+      resolve([...results, ...budgetErrors]);
+    };
+
+    const timeout = windowlessTimeout(finish, budgetMs);
+
+    const launch = () => {
+      if (resolved) {
+        return;
+      }
+
+      while (active < concurrency && nextIndex < tasks.length) {
+        const task = tasks[nextIndex];
+        nextIndex += 1;
+        active += 1;
+
+        withTaskTimeout(task.run(), task.source, Math.min(SEARCH_TASK_TIMEOUT_MS, Math.max(3000, budgetMs - 1000)))
+          .then((result) => {
+            if (!resolved) {
+              results.push(result);
+              completedSources.add(task.source);
+            }
+          })
+          .catch((error) => {
+            if (!resolved) {
+              results.push({ source: task.source, results: [], error: errorMessage(error) });
+              completedSources.add(task.source);
+            }
+          })
+          .finally(() => {
+            active -= 1;
+            if (resolved) {
+              return;
+            }
+
+            if (nextIndex >= tasks.length && active === 0) {
+              clearTimeout(timeout);
+              finish();
+              return;
+            }
+
+            launch();
+          });
+      }
+    };
+
+    launch();
+  });
+}
+
+async function withTaskTimeout(task: Promise<SearchTaskResult>, source: string, timeoutMs: number): Promise<SearchTaskResult> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      task,
+      new Promise<SearchTaskResult>((resolve) => {
+        timeout = windowlessTimeout(() => {
+          resolve({
+            source,
+            results: [],
+            error: `timed out after ${Math.round(timeoutMs / 1000)} seconds; returning partial search results`,
+          });
+        }, timeoutMs);
+      }),
+    ]);
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
 async function runBonfireQueued<T>(task: () => Promise<T>): Promise<T> {
   const globalStore = globalThis as typeof globalThis & { __govContractFinderBonfireQueue?: Promise<void> };
   const previous = globalStore.__govContractFinderBonfireQueue ?? Promise.resolve();
@@ -1594,6 +1764,26 @@ async function fetchPublicPageOnce(url: string) {
       cache: "no-store",
       signal: controller.signal,
     });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number) {
+  const controller = new AbortController();
+  const timeout = windowlessTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`timed out after ${Math.round(timeoutMs / 1000)} seconds`);
+    }
+
+    throw error;
   } finally {
     clearTimeout(timeout);
   }

@@ -139,12 +139,14 @@ export function GovContractsShell({
 
     setSelectedSource("All");
     setSearchBusy(true);
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 45000);
     try {
       const params = new URLSearchParams({ q: concept, state, level });
-      const response = await fetch(`/api/gov/search?${params.toString()}`);
+      const response = await fetch(`/api/gov/search?${params.toString()}`, { signal: controller.signal });
       const data = (await response.json()) as UnifiedSearchResponse;
       setSearchResponse(data);
-    } catch {
+    } catch (error) {
       setSearchResponse({
         query: concept,
         configured: false,
@@ -152,10 +154,11 @@ export function GovContractsShell({
         counts: { opportunities: 0, connected: 0, pending: 0, total: 0 },
         searchedSources: [],
         pendingSources: [],
-        errors: ["Search API unavailable."],
-        message: "Search is unavailable.",
+        errors: [error instanceof Error && error.name === "AbortError" ? "Search took too long and was stopped." : "Search API unavailable."],
+        message: error instanceof Error && error.name === "AbortError" ? "Search timed out before results could be returned." : "Search is unavailable.",
       });
     } finally {
+      window.clearTimeout(timeout);
       setSearchBusy(false);
     }
   }

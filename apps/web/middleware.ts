@@ -12,13 +12,9 @@ export function middleware(request: NextRequest) {
   const authorization = request.headers.get("authorization");
 
   if (authorization?.startsWith("Basic ")) {
-    const encoded = authorization.slice("Basic ".length);
-    const decoded = atob(encoded);
-    const separatorIndex = decoded.indexOf(":");
-    const providedUsername = decoded.slice(0, separatorIndex);
-    const providedPassword = decoded.slice(separatorIndex + 1);
+    const credentials = decodeBasicAuth(authorization);
 
-    if (providedUsername === username && providedPassword === password) {
+    if (credentials?.username === username && credentials.password === password) {
       return NextResponse.next();
     }
   }
@@ -34,3 +30,21 @@ export function middleware(request: NextRequest) {
 export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };
+
+function decodeBasicAuth(authorization: string) {
+  try {
+    const encoded = authorization.slice("Basic ".length);
+    const decoded = atob(encoded);
+    const separatorIndex = decoded.indexOf(":");
+    if (separatorIndex < 0) {
+      return undefined;
+    }
+
+    return {
+      username: decoded.slice(0, separatorIndex),
+      password: decoded.slice(separatorIndex + 1),
+    };
+  } catch {
+    return undefined;
+  }
+}
