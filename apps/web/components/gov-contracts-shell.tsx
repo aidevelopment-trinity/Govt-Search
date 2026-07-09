@@ -54,6 +54,16 @@ type SavedProposal = {
 
 const levelOptions = ["All", "Federal", "State", "Local", "Adjacent", "Education"];
 const defaultTerms = ["leadership development", "management training", "supervisor training", "organizational development", "executive coaching"];
+const lastSearchStorageKey = "gov-contract-finder:last-search";
+
+type LastSearchState = {
+  query: string;
+  state: string;
+  level: string;
+  selectedSource: string;
+  searchResponse: UnifiedSearchResponse;
+  savedAt: string;
+};
 
 export function GovContractsShell({
   sources,
@@ -66,6 +76,7 @@ export function GovContractsShell({
   const [state, setState] = useState("All");
   const [level, setLevel] = useState("All");
   const [selectedSource, setSelectedSource] = useState("All");
+  const [lastSearchFilters, setLastSearchFilters] = useState({ state: "All", level: "All" });
   const [searchResponse, setSearchResponse] = useState<UnifiedSearchResponse>(
     () => providedInitialSearchResponse ?? initialSearchResponse("leadership development"),
   );
@@ -101,8 +112,55 @@ export function GovContractsShell({
     : "Ready";
 
   useEffect(() => {
+    restoreLastSearch();
     void loadSavedProposals();
   }, []);
+
+  useEffect(() => {
+    if (!hasSearched) {
+      return;
+    }
+
+    saveLastSearch({
+      query: searchResponse.query,
+      state: lastSearchFilters.state,
+      level: lastSearchFilters.level,
+      selectedSource,
+      searchResponse,
+      savedAt: new Date().toISOString(),
+    });
+  }, [hasSearched, lastSearchFilters.level, lastSearchFilters.state, searchResponse, selectedSource]);
+
+  function restoreLastSearch() {
+    try {
+      const rawValue = window.sessionStorage.getItem(lastSearchStorageKey);
+      if (!rawValue) {
+        return;
+      }
+
+      const cached = JSON.parse(rawValue) as Partial<LastSearchState>;
+      if (!cached.query || !cached.searchResponse?.results || !cached.searchResponse.counts) {
+        return;
+      }
+
+      setQuery(cached.query);
+      setState(cached.state ?? "All");
+      setLevel(cached.level ?? "All");
+      setLastSearchFilters({ state: cached.state ?? "All", level: cached.level ?? "All" });
+      setSelectedSource(cached.selectedSource ?? "All");
+      setSearchResponse(cached.searchResponse);
+    } catch {
+      window.sessionStorage.removeItem(lastSearchStorageKey);
+    }
+  }
+
+  function saveLastSearch(value: LastSearchState) {
+    try {
+      window.sessionStorage.setItem(lastSearchStorageKey, JSON.stringify(value));
+    } catch {
+      // Search restore is a convenience; storage failures should not affect search.
+    }
+  }
 
   async function loadSavedProposals() {
     setSavedProposalsStatus("loading");
@@ -138,6 +196,8 @@ export function GovContractsShell({
     }
 
     setSelectedSource("All");
+    const searchFilters = { state, level };
+    setLastSearchFilters(searchFilters);
     setSearchBusy(true);
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 45000);
@@ -146,6 +206,7 @@ export function GovContractsShell({
       const response = await fetch(`/api/gov/search?${params.toString()}`, { signal: controller.signal });
       const data = (await response.json()) as UnifiedSearchResponse;
       setSearchResponse(data);
+      saveLastSearch({ query: concept, state: searchFilters.state, level: searchFilters.level, selectedSource: "All", searchResponse: data, savedAt: new Date().toISOString() });
     } catch (error) {
       setSearchResponse({
         query: concept,
