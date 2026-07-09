@@ -20,23 +20,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { ProcurementSource, UnifiedSearchResult } from "@/lib/gov-types";
-
-type UnifiedSearchResponse = {
-  query: string;
-  configured: boolean;
-  results: UnifiedSearchResult[];
-  counts: {
-    opportunities: number;
-    connected: number;
-    pending: number;
-    total: number;
-  };
-  searchedSources: string[];
-  pendingSources: string[];
-  errors: string[];
-  message?: string;
-};
+import type { ProcurementSource, SourceSearchStatus, UnifiedSearchResponse, UnifiedSearchResult } from "@/lib/gov-types";
 
 type SavedProposal = {
   id: string;
@@ -102,12 +86,14 @@ export function GovContractsShell({
 
     return [["All", searchResponse.results.length] as const, ...Array.from(counts.entries()).sort(([a], [b]) => a.localeCompare(b))];
   }, [searchResponse.results]);
+  const sourceStatuses = searchResponse.sourceStatuses ?? [];
   const visibleResults = selectedSource === "All" ? searchResponse.results : searchResponse.results.filter((result) => result.sourceName === selectedSource);
   const hasSearched = searchResponse.searchedSources.length > 0 || searchResponse.errors.length > 0;
   const statesCount = new Set(sources.map((source) => source.state)).size;
+  const sourceIssueCount = sourceStatuses.filter((status) => status.status !== "ok").length;
   const runSummary = hasSearched
-    ? `${searchResponse.counts.opportunities} opportunities · ${searchResponse.counts.connected} sources searched · ${searchResponse.errors.length} connector ${
-        searchResponse.errors.length === 1 ? "issue" : "issues"
+    ? `${searchResponse.counts.opportunities} opportunities · ${searchResponse.counts.connected} sources searched · ${sourceIssueCount} source ${
+        sourceIssueCount === 1 ? "issue" : "issues"
       }`
     : "Ready";
 
@@ -148,7 +134,7 @@ export function GovContractsShell({
       setLevel(cached.level ?? "All");
       setLastSearchFilters({ state: cached.state ?? "All", level: cached.level ?? "All" });
       setSelectedSource(cached.selectedSource ?? "All");
-      setSearchResponse(cached.searchResponse);
+      setSearchResponse({ ...cached.searchResponse, sourceStatuses: cached.searchResponse.sourceStatuses ?? [] });
     } catch {
       window.sessionStorage.removeItem(lastSearchStorageKey);
     }
@@ -179,7 +165,7 @@ export function GovContractsShell({
     }
   }
 
-  async function runSearch(nextQuery = query) {
+  async function runSearch(nextQuery = query, options: { forceRefresh?: boolean } = {}) {
     const concept = nextQuery.trim();
     if (concept.length < 3) {
       setSearchResponse({
@@ -189,6 +175,7 @@ export function GovContractsShell({
         counts: { opportunities: 0, connected: 0, pending: 0, total: 0 },
         searchedSources: [],
         pendingSources: [],
+        sourceStatuses: [],
         errors: [],
         message: "Enter at least 3 characters.",
       });
@@ -203,18 +190,24 @@ export function GovContractsShell({
     const timeout = window.setTimeout(() => controller.abort(), 45000);
     try {
       const params = new URLSearchParams({ q: concept, state, level });
+      if (options.forceRefresh) {
+        params.set("cache", "refresh");
+      }
       const response = await fetch(`/api/gov/search?${params.toString()}`, { signal: controller.signal });
       const data = (await response.json()) as UnifiedSearchResponse;
-      setSearchResponse(data);
-      saveLastSearch({ query: concept, state: searchFilters.state, level: searchFilters.level, selectedSource: "All", searchResponse: data, savedAt: new Date().toISOString() });
+      const normalizedData = { ...data, sourceStatuses: data.sourceStatuses ?? [] };
+      setSearchResponse(normalizedData);
+      saveLastSearch({ query: concept, state: searchFilters.state, level: searchFilters.level, selectedSource: "All", searchResponse: normalizedData, savedAt: new Date().toISOString() });
     } catch (error) {
       setSearchResponse({
         query: concept,
         configured: false,
+        cached: false,
         results: [],
         counts: { opportunities: 0, connected: 0, pending: 0, total: 0 },
         searchedSources: [],
         pendingSources: [],
+        sourceStatuses: [],
         errors: [error instanceof Error && error.name === "AbortError" ? "Search took too long and was stopped." : "Search API unavailable."],
         message: error instanceof Error && error.name === "AbortError" ? "Search timed out before results could be returned." : "Search is unavailable.",
       });
@@ -232,8 +225,8 @@ export function GovContractsShell({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           query: searchResponse.query,
-          state,
-          level,
+          state: lastSearchFilters.state,
+          level: lastSearchFilters.level,
           resultsCount: searchResponse.counts.opportunities,
           searchedSourcesCount: searchResponse.counts.connected,
           pendingSourcesCount: searchResponse.counts.pending,
@@ -342,13 +335,26 @@ export function GovContractsShell({
                   <span className="rounded-md border border-line bg-slate-50 px-2 py-1 text-xs text-slate-600">{runSummary}</span>
                 </div>
                 <p className="mt-1 text-sm text-slate-500">
-                  {searchBusy ? "Searching connected sources..." : hasSearched ? `Latest search: "${searchResponse.query}"` : "Run a search to see matching opportunities."}
+                  {searchBusy
+                    ? "Searching connected sources..."
+                    : hasSearched
+                      ? `Latest search: "${searchResponse.query}"${searchResponse.cached ? ` · cached ${formatDuration(searchResponse.cacheAgeMs)} ago` : ""}`
+                      : "Run a search to see matching opportunities."}
                 </p>
               </div>
               <div className="inline-flex items-center gap-2 rounded-md border border-line px-3 py-2 text-sm text-slate-600">
                 <Filter className="size-4" />
                 <span>{state} / {level}</span>
               </div>
+              <button
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+                type="button"
+                disabled={!hasSearched || searchBusy}
+                onClick={() => void runSearch(searchResponse.query, { forceRefresh: true })}
+              >
+                <RefreshCw className={`size-4 ${searchBusy ? "animate-spin" : ""}`} />
+                <span>Refresh Sources</span>
+              </button>
               <button
                 className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
                 type="button"
@@ -444,6 +450,8 @@ export function GovContractsShell({
               <Metric label="Searched" value={searchResponse.counts.connected.toString()} />
               <Metric label="Pending" value={searchResponse.counts.pending.toString()} />
               <Metric label="States" value={statesCount.toString()} />
+              <Metric label="Cache" value={hasSearched ? (searchResponse.cached ? "Hit" : "Fresh") : "-"} />
+              <Metric label="Time" value={hasSearched ? formatDuration(searchResponse.elapsedMs) : "-"} />
             </div>
             {searchResponse.searchedSources.length > 0 && !searchResponse.configured ? (
               <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
@@ -454,21 +462,19 @@ export function GovContractsShell({
 
           <section className="rounded-md border border-line bg-white p-4 shadow-panel">
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-base font-semibold">Connector Issues</h2>
-              <AlertTriangle className="size-4 text-slate-500" />
+              <h2 className="text-base font-semibold">Source Health</h2>
+              {sourceIssueCount > 0 ? <AlertTriangle className="size-4 text-amber-500" /> : <CheckCircle2 className="size-4 text-emerald-600" />}
             </div>
-            {searchResponse.errors.length > 0 ? (
+            {sourceStatuses.length > 0 ? (
               <div className="space-y-2">
-                {searchResponse.errors.slice(0, 6).map((error) => (
-                  <p key={error} className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900">
-                    {error}
-                  </p>
+                {sourceStatuses.slice(0, 8).map((status) => (
+                  <SourceStatusRow key={`${status.sourceName}:${status.status}`} status={status} />
                 ))}
-                {searchResponse.errors.length > 6 ? <p className="text-xs text-slate-500">+{searchResponse.errors.length - 6} more issues.</p> : null}
+                {sourceStatuses.length > 8 ? <p className="text-xs text-slate-500">+{sourceStatuses.length - 8} more sources.</p> : null}
               </div>
             ) : (
               <p className="rounded-md border border-line bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                {hasSearched ? "No connector issues in the latest run." : "No run yet."}
+                {hasSearched ? "No source status details were returned." : "No run yet."}
               </p>
             )}
           </section>
@@ -532,6 +538,7 @@ function ResultRow({ result, onSaved }: { result: UnifiedSearchResult; onSaved: 
           <h3 className="text-sm font-semibold leading-6 text-ink md:text-base">{result.title}</h3>
           <p className="mt-1 line-clamp-2 text-sm text-slate-600">{result.summary}</p>
           <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-600">
+            <Badge icon={CheckCircle2} label={`Fit ${result.score}`} />
             <Badge icon={Building2} label={result.buyer} />
             <Badge icon={ShieldCheck} label={result.status} />
             {result.solicitationId ? <span className="rounded-md border border-line bg-white px-2 py-1">ID {result.solicitationId}</span> : null}
@@ -611,6 +618,35 @@ function ResultRow({ result, onSaved }: { result: UnifiedSearchResult; onSaved: 
               )}
             </section>
           </div>
+
+          <section className="mt-3 rounded-md border border-line bg-white p-3">
+            <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
+              <CheckCircle2 className="size-4 text-emerald-600" />
+              <span>Fit Analysis</span>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <p className="mb-2 text-xs font-medium uppercase text-slate-500">Why It Matched</p>
+                <ul className="space-y-1 text-sm text-slate-700">
+                  {(result.fitReasons?.length ? result.fitReasons : ["The title or source data matched the search concept."]).map((reason) => (
+                    <li key={reason} className="rounded-md border border-line bg-slate-50 px-2 py-1">
+                      {reason}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <p className="mb-2 text-xs font-medium uppercase text-slate-500">Watch Items</p>
+                <ul className="space-y-1 text-sm text-slate-700">
+                  {(result.riskFlags?.length ? result.riskFlags : ["No major missing fields were detected from the connected source."]).map((flag) => (
+                    <li key={flag} className="rounded-md border border-line bg-slate-50 px-2 py-1">
+                      {flag}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </section>
 
           <section className="mt-3 rounded-md border border-line bg-white p-3">
             <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
@@ -696,6 +732,41 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
+function SourceStatusRow({ status }: { status: SourceSearchStatus }) {
+  const colorClass =
+    status.status === "ok"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+      : status.status === "pending"
+        ? "border-amber-200 bg-amber-50 text-amber-900"
+        : "border-rose-200 bg-rose-50 text-rose-900";
+
+  return (
+    <div className={`rounded-md border px-3 py-2 text-xs ${colorClass}`}>
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-medium">{status.sourceName}</p>
+        <span className="shrink-0 uppercase">{status.status}</span>
+      </div>
+      <p className="mt-1">{status.message}</p>
+      <p className="mt-1 text-[11px] opacity-80">
+        {status.resultCount} result{status.resultCount === 1 ? "" : "s"}
+        {status.durationMs !== undefined ? ` · ${formatDuration(status.durationMs)}` : ""}
+      </p>
+    </div>
+  );
+}
+
+function formatDuration(ms?: number) {
+  if (ms === undefined) {
+    return "-";
+  }
+
+  if (ms < 1000) {
+    return `${Math.max(0, Math.round(ms))}ms`;
+  }
+
+  return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
+}
+
 function Select({
   label,
   value,
@@ -750,6 +821,7 @@ function initialSearchResponse(query: string): UnifiedSearchResponse {
     },
     searchedSources: [],
     pendingSources: [],
+    sourceStatuses: [],
     errors: [],
     message: "Ready.",
   };

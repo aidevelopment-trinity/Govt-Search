@@ -1,7 +1,7 @@
 import "server-only";
 
 import { conceptTerms, samSearchUrl } from "@/lib/gov-search";
-import type { ProcurementSource, UnifiedSearchResult } from "@/lib/gov-types";
+import type { ProcurementSource, SourceSearchStatus, UnifiedSearchResult } from "@/lib/gov-types";
 
 type SearchFilters = {
   query: string;
@@ -14,11 +14,12 @@ type ConnectedSearchResponse = {
   results: UnifiedSearchResult[];
   searchedSources: string[];
   pendingSources: string[];
+  sourceStatuses: SourceSearchStatus[];
   errors: string[];
   samConfigured: boolean;
 };
 
-type SearchTaskResult = { source: string; results: UnifiedSearchResult[]; error?: string };
+type SearchTaskResult = { source: string; results: UnifiedSearchResult[]; error?: string; durationMs?: number };
 type SearchTask = { source: string; run: () => Promise<SearchTaskResult> };
 type SamSearchResult = { results: UnifiedSearchResult[]; error?: string };
 type ConnectorSearchResult = { results: UnifiedSearchResult[]; error?: string };
@@ -289,15 +290,28 @@ export async function searchConnectedSources({ query, state, level, sources }: S
   }
 
   const settled = await runSearchTasks(tasks, SEARCH_TASK_CONCURRENCY, SEARCH_TOTAL_TIMEOUT_MS);
-  const results = dedupeResults(settled.flatMap((item) => item.results))
+  const results = dedupeResults(settled.flatMap((item) => item.results).map((result) => enrichSearchResult(result, query)))
     .sort((a, b) => resultRankScore(b) - resultRankScore(a) || a.title.localeCompare(b.title))
     .slice(0, MAX_RESULTS);
   const errors = settled.flatMap((item) => (item.error ? [`${item.source}: ${item.error}`] : []));
+  const sourceStatuses = [
+    ...settled.map((item) => sourceStatusFromTaskResult(item)),
+    ...pendingSources.map((sourceName) => ({
+      sourceName,
+      status: "pending" as const,
+      message: pendingSourceMessage(sourceName),
+      resultCount: 0,
+    })),
+  ].sort((a, b) => {
+    const statusOrder = { error: 0, pending: 1, ok: 2 };
+    return statusOrder[a.status] - statusOrder[b.status] || a.sourceName.localeCompare(b.sourceName);
+  });
 
   return {
     results,
     searchedSources,
     pendingSources,
+    sourceStatuses,
     errors,
     samConfigured,
   };
@@ -1396,6 +1410,145 @@ function extractOpportunityLinks(html: string, query: string, source: Procuremen
   return results.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title)).slice(0, 3);
 }
 
+function enrichSearchResult(result: UnifiedSearchResult, query: string): UnifiedSearchResult {
+  const haystack = [
+    result.title,
+    result.summary,
+    result.buyer,
+    result.sourceName,
+    result.sourceLevel,
+    result.sourceType,
+    result.status,
+    result.solicitationId,
+    result.documents?.join(" "),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const normalizedQuery = query.toLowerCase().replace(/[^\w\s-]/g, " ").replace(/\s+/g, " ").trim();
+  const matchedTerms = conceptTerms(query)
+    .filter((term) => term.length > 2 && haystack.includes(term.toLowerCase()))
+    .slice(0, 5);
+  const fitReasons: string[] = [];
+  const riskFlags: string[] = [];
+  let fitScore = 32 + Math.min(14, Math.round(result.score / 12));
+
+  if (normalizedQuery && haystack.includes(normalizedQuery)) {
+    fitScore += 24;
+    fitReasons.push(`Strong match for "${normalizedQuery}".`);
+  } else if (matchedTerms.length > 0) {
+    fitScore += Math.min(22, matchedTerms.length * 6);
+    fitReasons.push(`Matches ${matchedTerms.slice(0, 4).join(", ")}.`);
+  }
+
+  if (/official|api|esbd|bonfire/i.test(result.sourceType)) {
+    fitScore += 8;
+    fitReasons.push("Found through an official procurement source.");
+  }
+
+  if (result.deadline) {
+    fitScore += 10;
+    fitReasons.push(`Response deadline captured: ${result.deadline}.`);
+
+    const daysLeft = daysUntilDeadline(result.deadline);
+    if (daysLeft !== undefined && daysLeft <= 7) {
+      fitScore -= 8;
+      riskFlags.push(`Deadline is soon: ${daysLeft} day${daysLeft === 1 ? "" : "s"} left.`);
+    }
+  } else {
+    riskFlags.push("Deadline was not captured.");
+  }
+
+  if (result.solicitationId) {
+    fitScore += 7;
+    fitReasons.push(`Reference ID captured: ${result.solicitationId}.`);
+  } else {
+    riskFlags.push("Reference ID was not captured.");
+  }
+
+  if (result.documents?.length) {
+    fitScore += 6;
+    fitReasons.push("Document or classification data was captured.");
+  } else {
+    riskFlags.push("No document list was captured.");
+  }
+
+  if (result.contact) {
+    fitScore += 4;
+    fitReasons.push("Buyer/contact information was captured.");
+  } else {
+    riskFlags.push("Buyer contact was not captured.");
+  }
+
+  if (result.budget) {
+    fitScore += 5;
+    fitReasons.push(`Budget information captured: ${result.budget}.`);
+  }
+
+  if (result.summary.length > 100) {
+    fitScore += 4;
+  }
+
+  return {
+    ...result,
+    score: Math.max(1, Math.min(100, Math.round(fitScore))),
+    fitReasons: fitReasons.slice(0, 5),
+    riskFlags: riskFlags.slice(0, 5),
+  };
+}
+
+function sourceStatusFromTaskResult(result: SearchTaskResult): SourceSearchStatus {
+  if (result.error) {
+    return {
+      sourceName: result.source,
+      status: "error",
+      message: connectorMessage(result.error),
+      resultCount: result.results.length,
+      durationMs: result.durationMs,
+    };
+  }
+
+  return {
+    sourceName: result.source,
+    status: "ok",
+    message: result.results.length > 0 ? "Search completed with matching opportunities." : "Search completed with no matching opportunities.",
+    resultCount: result.results.length,
+    durationMs: result.durationMs,
+  };
+}
+
+function pendingSourceMessage(sourceName: string) {
+  if (/sam\.gov/i.test(sourceName)) {
+    return "Listed but not searched because the SAM.gov API key is not configured in this environment.";
+  }
+
+  return "Listed in the source directory, but live search for this source is not wired yet.";
+}
+
+function connectorMessage(error: string) {
+  if (/rate limited/i.test(error)) {
+    return "Rate limited by the source; cached cooldown is active.";
+  }
+
+  if (/timed out|not completed/i.test(error)) {
+    return "Timed out before this source finished; partial results were returned.";
+  }
+
+  if (/returned 403|forbidden/i.test(error)) {
+    return "Blocked by the source with a 403 response.";
+  }
+
+  if (/returned 404|not found/i.test(error)) {
+    return "The source page or endpoint was not found.";
+  }
+
+  if (/missing/i.test(error) && /api/i.test(error)) {
+    return "Required API configuration is missing.";
+  }
+
+  return error;
+}
+
 function scoreOpportunity(haystack: string, terms: string[], baseScore: number) {
   if (terms.length === 0) {
     return baseScore;
@@ -1495,6 +1648,17 @@ function isPastDeadline(deadline?: string) {
   const endOfDeadline = new Date(parsed);
   endOfDeadline.setHours(23, 59, 59, 999);
   return endOfDeadline.getTime() < Date.now();
+}
+
+function daysUntilDeadline(deadline?: string) {
+  const parsed = parseDeadlineDate(deadline);
+  if (!parsed) {
+    return undefined;
+  }
+
+  const endOfDeadline = new Date(parsed);
+  endOfDeadline.setHours(23, 59, 59, 999);
+  return Math.ceil((endOfDeadline.getTime() - Date.now()) / 86_400_000);
 }
 
 function parseDeadlineDate(deadline?: string) {
@@ -1657,21 +1821,24 @@ async function runSearchTasks(tasks: SearchTask[], concurrency: number, budgetMs
 
 async function withTaskTimeout(task: Promise<SearchTaskResult>, source: string, timeoutMs: number): Promise<SearchTaskResult> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
+  const startedAt = Date.now();
   try {
-    return await Promise.race([
+    const result = await Promise.race([
       task,
       new Promise<SearchTaskResult>((resolve) => {
         timeout = windowlessTimeout(() => {
           resolve({
             source,
             results: [],
+            durationMs: Date.now() - startedAt,
             error: `timed out after ${Math.round(timeoutMs / 1000)} seconds; returning partial search results`,
           });
         }, timeoutMs);
       }),
     ]);
+    return { ...result, durationMs: result.durationMs ?? Date.now() - startedAt };
   } catch (error) {
-    return { source, results: [], error: errorMessage(error) };
+    return { source, results: [], durationMs: Date.now() - startedAt, error: errorMessage(error) };
   } finally {
     if (timeout) {
       clearTimeout(timeout);
