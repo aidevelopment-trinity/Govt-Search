@@ -92,6 +92,7 @@ type OpenGovSource = {
   portalCode: string;
   portalUrl: string;
   level: string;
+  state?: string;
   departmentId?: string;
 };
 type WorkdaySource = {
@@ -273,7 +274,7 @@ const TEXAS_IONWAVE_SOURCES: IonWaveSource[] = [
   },
 ];
 const TEXAS_IONWAVE_SOURCE_BY_NAME = new Map(TEXAS_IONWAVE_SOURCES.map((source) => [source.sourceName, source]));
-const TEXAS_OPENGOV_SOURCES: OpenGovSource[] = [
+const OPENGOV_SOURCES: OpenGovSource[] = [
   {
     sourceName: "Collin County Purchasing",
     buyer: "Collin County",
@@ -303,8 +304,24 @@ const TEXAS_OPENGOV_SOURCES: OpenGovSource[] = [
     level: "Adjacent",
     departmentId: "3252",
   },
+  {
+    sourceName: "City of Tampa Purchasing",
+    buyer: "City of Tampa",
+    portalCode: "cityoftampa",
+    portalUrl: "https://procurement.opengov.com/portal/cityoftampa",
+    level: "Local",
+    state: "FL",
+  },
+  {
+    sourceName: "RTD Procurement and Contracting",
+    buyer: "Regional Transportation District",
+    portalCode: "rtd-denver",
+    portalUrl: "https://procurement.opengov.com/portal/rtd-denver",
+    level: "Adjacent",
+    state: "CO",
+  },
 ];
-const TEXAS_OPENGOV_SOURCE_BY_NAME = new Map(TEXAS_OPENGOV_SOURCES.map((source) => [source.sourceName, source]));
+const OPENGOV_SOURCE_BY_NAME = new Map(OPENGOV_SOURCES.map((source) => [source.sourceName, source]));
 const TEXAS_WORKDAY_SOURCES: WorkdaySource[] = [
   {
     sourceName: "Dallas College Supplier Information",
@@ -349,12 +366,32 @@ const AUSTIN_ENERGY_RFPS_URL = "https://austinenergy.com/contractors/working-wit
 const ARAPAHOE_BIDNET_PORTAL_URL = "https://www.bidnetdirect.com/colorado/arapahoe-county";
 const ARAPAHOE_BIDNET_OPEN_BIDS_URL =
   "https://www.bidnetdirect.com/colorado/arapahoe-county/solicitations/open-bids?selectedContent=BUYER";
+const COLORADO_SPRINGS_BIDNET_PORTAL_URL = "https://www.bidnetdirect.com/colorado/city-of-colorado-springs";
+const COLORADO_SPRINGS_BIDNET_OPEN_BIDS_URL =
+  "https://www.bidnetdirect.com/colorado/city-of-colorado-springs/solicitations/open-bids?selectedContent=BUYER";
+const AURORA_BIDNET_PORTAL_URL = "https://www.bidnetdirect.com/colorado/city-of-aurora";
+const AURORA_BIDNET_OPEN_BIDS_URL = "https://www.bidnetdirect.com/colorado/city-of-aurora/solicitations/open-bids?selectedContent=BUYER";
+const FORT_COLLINS_BIDNET_PORTAL_URL = "https://www.bidnetdirect.com/colorado/city-of-fort-collins";
+const FORT_COLLINS_BIDNET_OPEN_BIDS_URL =
+  "https://www.bidnetdirect.com/colorado/city-of-fort-collins/solicitations/open-bids?selectedContent=BUYER";
+const DENVER_PUBLIC_SCHOOLS_BIDNET_PORTAL_URL = "https://www.bidnetdirect.com/colorado/denver-public-schools";
+const DENVER_PUBLIC_SCHOOLS_BIDNET_OPEN_BIDS_URL =
+  "https://www.bidnetdirect.com/colorado/denver-public-schools/solicitations/open-bids?selectedContent=BUYER";
+const DOUGLAS_COUNTY_CO_BIDNET_PORTAL_URL = "https://www.bidnetdirect.com/colorado/douglas-county-government";
+const DOUGLAS_COUNTY_CO_BIDNET_OPEN_BIDS_URL =
+  "https://www.bidnetdirect.com/colorado/douglas-county-government/solicitations/open-bids?selectedContent=BUYER";
+const UNIVERSITY_OF_COLORADO_BIDNET_PORTAL_URL = "https://www.bidnetdirect.com/colorado/universityofcolorado";
+const UNIVERSITY_OF_COLORADO_BIDNET_OPEN_BIDS_URL =
+  "https://www.bidnetdirect.com/colorado/universityofcolorado/solicitations/open-bids?selectedContent=BUYER";
 const BOULDER_COUNTY_BIDS_URL = "https://bouldercounty.gov/government/budget-and-finance/procurement/bid-opportunities/";
 const BOULDER_COUNTY_PROCUREMENT_PORTAL_URL = "https://bouldercounty.bonfirehub.com/portal";
 const DENVER_CURRENT_BIDS_URL = "https://www.denvergov.org/Business/Contract-Administration/Current";
 const ADDISON_BIDNET_PORTAL_URL = "https://www.bidnetdirect.com/texas/townofaddison";
 const ADDISON_BIDNET_OPEN_BIDS_URL =
   "https://www.bidnetdirect.com/texas/townofaddison/solicitations/open-bids?selectedContent=BUYER";
+const FULTON_COUNTY_BIDNET_PORTAL_URL = "https://www.bidnetdirect.com/georgia/fultoncounty";
+const FULTON_COUNTY_BIDNET_OPEN_BIDS_URL =
+  "https://www.bidnetdirect.com/georgia/fultoncounty/solicitations/open-bids?selectedContent=BUYER";
 const HANDLED_SOURCE_NAMES = new Set([
   "SAM.gov Contract Opportunities",
   "Texas Electronic State Business Daily",
@@ -383,11 +420,39 @@ const HANDLED_SOURCE_NAMES = new Set([
   ...TEXAS_ESBD_AGENCY_SOURCE_BY_NAME.keys(),
   ...TEXAS_BONFIRE_SOURCE_BY_NAME.keys(),
   ...TEXAS_IONWAVE_SOURCE_BY_NAME.keys(),
-  ...TEXAS_OPENGOV_SOURCE_BY_NAME.keys(),
+  ...OPENGOV_SOURCE_BY_NAME.keys(),
   ...TEXAS_WORKDAY_SOURCE_BY_NAME.keys(),
   ...TEXAS_REFERENCE_SOURCE_NAMES,
 ]);
-const REFERENCE_ONLY_SOURCE_NAMES = new Set(["Acquisition.gov"]);
+const OFFICIAL_PAGE_SOURCE_NAMES = new Set([
+  "Colorado Department of Transportation Bidding",
+  "Shelby County Purchasing",
+  "Tennessee Board of Regents Procurement Opportunities",
+  "University of Florida Procurement Bid Schedule",
+]);
+const REFERENCE_ONLY_SOURCE_NAMES = new Set([
+  "Acquisition.gov",
+  "Colorado BIDS Price Agreements",
+  "Colorado State Purchasing and Contracts",
+  "Department of Defense Office of Small Business Programs",
+  "Department of Health and Human Services Contracts",
+  "Department of Homeland Security Vendor Resources",
+  "Department of Labor Contract Opportunities",
+  "Department of Transportation Procurement",
+  "Department of Veterans Affairs Vendor Portal",
+  "Federal Procurement Data System",
+  "Florida State Purchasing / MFMP",
+  "Georgia DOAS Bids and Contracts",
+  "GSA eBuy",
+  "GSA Multiple Award Schedule",
+  "MyFloridaMarketPlace Vendor Information Portal",
+  "NC eProcurement",
+  "Small Business Administration Contracting Guide",
+  "Tennessee Central Procurement Office Supplier Info",
+  "UNC System Procurement",
+  "University System of Georgia Procurement",
+  "USAspending.gov",
+]);
 const SERVER_BLOCKED_SOURCE_NAMES = new Set(["The Woodlands Township Bids", "Equalis Group Current Solicitations"]);
 const PENDING_SOURCE_MESSAGES = new Map<string, string>([
   [
@@ -550,11 +615,11 @@ export async function searchConnectedSources({ query, state, level, sources }: S
         continue;
       }
 
-      const texasOpenGovSource = TEXAS_OPENGOV_SOURCE_BY_NAME.get(source.source_name);
-      if (texasOpenGovSource) {
-        searchedSources.push(texasOpenGovSource.sourceName);
-        removePending(pendingSources, texasOpenGovSource.sourceName);
-        tasks.push({ source: texasOpenGovSource.sourceName, run: () => searchOpenGov(query, texasOpenGovSource) });
+      const openGovSource = OPENGOV_SOURCE_BY_NAME.get(source.source_name);
+      if (openGovSource) {
+        searchedSources.push(openGovSource.sourceName);
+        removePending(pendingSources, openGovSource.sourceName);
+        tasks.push({ source: openGovSource.sourceName, run: () => searchOpenGov(query, openGovSource) });
         continue;
       }
 
@@ -571,6 +636,13 @@ export async function searchConnectedSources({ query, state, level, sources }: S
         searchedSources.push(texasAgencySource.sourceName);
         removePending(pendingSources, texasAgencySource.sourceName);
         tasks.push({ source: texasAgencySource.sourceName, run: () => searchTexasAgencyEsbd(query, texasAgencySource) });
+        continue;
+      }
+
+      if (OFFICIAL_PAGE_SOURCE_NAMES.has(source.source_name)) {
+        searchedSources.push(source.source_name);
+        removePending(pendingSources, source.source_name);
+        tasks.push({ source: source.source_name, run: () => searchOfficialSource(query, source) });
         continue;
       }
     }
@@ -663,12 +735,26 @@ function texasCustomSourceTask(sourceName: string, query: string): (() => Promis
       return () => searchSawsProcurement(query);
     case "Arapahoe County Purchasing":
       return () => searchArapahoeCountyPurchasing(query);
+    case "City of Aurora Purchasing":
+      return () => searchAuroraPurchasing(query);
+    case "City of Colorado Springs Procurement":
+      return () => searchColoradoSpringsPurchasing(query);
+    case "City of Fort Collins Purchasing":
+      return () => searchFortCollinsPurchasing(query);
+    case "Denver Public Schools Purchasing":
+      return () => searchDenverPublicSchoolsPurchasing(query);
+    case "Douglas County Purchasing":
+      return () => searchDouglasCountyColoradoPurchasing(query);
+    case "University of Colorado Procurement Service Center":
+      return () => searchUniversityOfColoradoPurchasing(query);
     case "Boulder County Purchasing":
       return () => searchBoulderCountyPurchasing(query);
     case "City and County of Denver Bidding Opportunities":
       return () => searchDenverCurrentBids(query);
     case "City of Addison Purchasing":
       return () => searchAddisonPurchasing(query);
+    case "Fulton County Bid Opportunities":
+      return () => searchFultonCountyBidOpportunities(query);
     default:
       return undefined;
   }
@@ -921,6 +1007,120 @@ type BidNetAgencySource = {
   openBidsUrl: string;
   submissionInstructions: string;
 };
+
+async function searchBidNetAgency(query: string, source: BidNetAgencySource): Promise<SearchTaskResult> {
+  try {
+    const response = await fetchPublicPage(source.openBidsUrl);
+    if (!response.ok) {
+      return { source: source.sourceName, results: [], error: `BidNet Direct returned ${response.status}` };
+    }
+
+    return {
+      source: source.sourceName,
+      results: parseBidNetAgencySolicitations(await response.text(), query, source),
+    };
+  } catch (error) {
+    return { source: source.sourceName, results: [], error: errorMessage(error) };
+  }
+}
+
+function searchColoradoSpringsPurchasing(query: string): Promise<SearchTaskResult> {
+  return searchBidNetAgency(query, {
+    sourceName: "City of Colorado Springs Procurement",
+    buyer: "City of Colorado Springs",
+    sourceLevel: "Local",
+    sourceState: "CO",
+    sourceType: "BidNet Direct public opportunity page",
+    portalUrl: COLORADO_SPRINGS_BIDNET_PORTAL_URL,
+    openBidsUrl: COLORADO_SPRINGS_BIDNET_OPEN_BIDS_URL,
+    submissionInstructions:
+      "Open the BidNet Direct posting, download the solicitation packet and addenda, confirm registration/submission requirements, and submit through BidNet Direct/Rocky Mountain E-Purchasing before the closing date.",
+  });
+}
+
+function searchAuroraPurchasing(query: string): Promise<SearchTaskResult> {
+  return searchBidNetAgency(query, {
+    sourceName: "City of Aurora Purchasing",
+    buyer: "City of Aurora",
+    sourceLevel: "Local",
+    sourceState: "CO",
+    sourceType: "BidNet Direct public opportunity page",
+    portalUrl: AURORA_BIDNET_PORTAL_URL,
+    openBidsUrl: AURORA_BIDNET_OPEN_BIDS_URL,
+    submissionInstructions:
+      "Open the BidNet Direct posting, download the solicitation packet and addenda, confirm registration/submission requirements, and submit through BidNet Direct/Rocky Mountain E-Purchasing before the closing date.",
+  });
+}
+
+function searchFortCollinsPurchasing(query: string): Promise<SearchTaskResult> {
+  return searchBidNetAgency(query, {
+    sourceName: "City of Fort Collins Purchasing",
+    buyer: "City of Fort Collins",
+    sourceLevel: "Local",
+    sourceState: "CO",
+    sourceType: "BidNet Direct public opportunity page",
+    portalUrl: FORT_COLLINS_BIDNET_PORTAL_URL,
+    openBidsUrl: FORT_COLLINS_BIDNET_OPEN_BIDS_URL,
+    submissionInstructions:
+      "Open the BidNet Direct posting, download the solicitation packet and addenda, confirm registration/submission requirements, and submit through BidNet Direct/Rocky Mountain E-Purchasing before the closing date.",
+  });
+}
+
+function searchDenverPublicSchoolsPurchasing(query: string): Promise<SearchTaskResult> {
+  return searchBidNetAgency(query, {
+    sourceName: "Denver Public Schools Purchasing",
+    buyer: "Denver Public Schools",
+    sourceLevel: "Local",
+    sourceState: "CO",
+    sourceType: "BidNet Direct public opportunity page",
+    portalUrl: DENVER_PUBLIC_SCHOOLS_BIDNET_PORTAL_URL,
+    openBidsUrl: DENVER_PUBLIC_SCHOOLS_BIDNET_OPEN_BIDS_URL,
+    submissionInstructions:
+      "Open the BidNet Direct posting, download the solicitation packet and addenda, confirm registration/submission requirements, and submit through BidNet Direct/Rocky Mountain E-Purchasing before the closing date.",
+  });
+}
+
+function searchDouglasCountyColoradoPurchasing(query: string): Promise<SearchTaskResult> {
+  return searchBidNetAgency(query, {
+    sourceName: "Douglas County Purchasing",
+    buyer: "Douglas County Colorado",
+    sourceLevel: "Local",
+    sourceState: "CO",
+    sourceType: "BidNet Direct public opportunity page",
+    portalUrl: DOUGLAS_COUNTY_CO_BIDNET_PORTAL_URL,
+    openBidsUrl: DOUGLAS_COUNTY_CO_BIDNET_OPEN_BIDS_URL,
+    submissionInstructions:
+      "Open the BidNet Direct posting, download the solicitation packet and addenda, confirm registration/submission requirements, and submit through BidNet Direct/Rocky Mountain E-Purchasing before the closing date.",
+  });
+}
+
+function searchUniversityOfColoradoPurchasing(query: string): Promise<SearchTaskResult> {
+  return searchBidNetAgency(query, {
+    sourceName: "University of Colorado Procurement Service Center",
+    buyer: "University of Colorado",
+    sourceLevel: "Education",
+    sourceState: "CO",
+    sourceType: "BidNet Direct public opportunity page",
+    portalUrl: UNIVERSITY_OF_COLORADO_BIDNET_PORTAL_URL,
+    openBidsUrl: UNIVERSITY_OF_COLORADO_BIDNET_OPEN_BIDS_URL,
+    submissionInstructions:
+      "Open the BidNet Direct posting, download the solicitation packet and addenda, confirm registration/submission requirements, and submit through BidNet Direct/Rocky Mountain E-Purchasing before the closing date.",
+  });
+}
+
+function searchFultonCountyBidOpportunities(query: string): Promise<SearchTaskResult> {
+  return searchBidNetAgency(query, {
+    sourceName: "Fulton County Bid Opportunities",
+    buyer: "Fulton County",
+    sourceLevel: "Local",
+    sourceState: "GA",
+    sourceType: "BidNet Direct public opportunity page",
+    portalUrl: FULTON_COUNTY_BIDNET_PORTAL_URL,
+    openBidsUrl: FULTON_COUNTY_BIDNET_OPEN_BIDS_URL,
+    submissionInstructions:
+      "Open the BidNet Direct posting, download the solicitation packet and addenda, confirm registration/submission requirements, and submit through BidNet Direct/Georgia Purchasing Group before the closing date.",
+  });
+}
 
 function parseBidNetAgencySolicitations(html: string, query: string, source: BidNetAgencySource): UnifiedSearchResult[] {
   const terms = conceptTerms(query);
@@ -2716,7 +2916,7 @@ function openGovProjectToResult(
     buyer,
     sourceName: source.sourceName,
     sourceLevel: source.level,
-    sourceState: "TX",
+    sourceState: source.state ?? "TX",
     sourceType: "OpenGov public portal",
     url: projectUrl,
     portalUrl: source.portalUrl,

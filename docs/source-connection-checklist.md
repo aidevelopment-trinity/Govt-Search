@@ -4,9 +4,10 @@ Generated from the production search for `leadership training` across all states
 
 ## Summary
 
-- 76 sources are connected and searched.
-- 61 sources are not wired, blocked, or account/browser-dependent.
-- 6 additional sources are wired but temporarily rate-limited.
+- Latest local verification for `leadership training`: 95 searched, 82 results, 28 directory-pending, 0 hard errors.
+- Source health currently shows 88 `ok` rows and 35 `pending` rows because temporary rate limits/timeouts are included in health.
+- Reference-only/vendor setup/award-history pages are no longer counted as broken live-opportunity connectors.
+- Production needs a fresh Vercel deployment after this checklist update is pushed.
 
 ## Active Work
 
@@ -54,76 +55,53 @@ Generated from the production search for `leadership training` across all states
    - Current finding: official eBid is IonWave and public rows exist, but Node/server fetch receives an IonWave/Cloudflare 429 challenge while browser/curl can read the page.
    - Checked endpoint: `https://allentx.ionwave.net/SourcingEvents.aspx?SourceType=1`.
    - Required resolution: approved browser collector, vendor alert ingestion, or official API/feed access. Do not count as wired until the app runtime gets an `ok` result.
+10. Colorado/Fulton/Tampa connector batch
+   - Status: Wired and locally verified.
+   - Sources added: City of Aurora, City of Colorado Springs, City of Fort Collins, Denver Public Schools, Douglas County CO, RTD, University of Colorado, Fulton County, and City of Tampa.
+   - Platforms: BidNet Direct / Rocky Mountain E-Purchasing, OpenGov.
+   - Verification examples: Aurora `firing range`, DPS `custodial services`, CU `billing tool`, Fulton `disaster bags`, Tampa `services`, RTD `leadership training`.
+11. Static official-page batch
+   - Status: Wired and locally verified.
+   - Sources added: CDOT future bidding, Shelby County bids listing, Tennessee Board of Regents procurement opportunities, University of Florida bid schedule.
+   - Note: these may correctly return zero results when the public page has no matching/open posting.
 
 ## Needs Connector Or Resolution
 
 1. Capital Area Council of Governments Procurement
 2. City of Allen Purchasing
 3. City of Atlanta Procurement
-4. City of Aurora Purchasing
-5. City of Charlotte Procurement
-6. City of Colorado Springs Procurement
-7. City of Fort Collins Purchasing
-8. City of Houston Procurement
-9. City of Memphis Purchasing
-10. City of Orlando Procurement and Contracts
-11. City of Raleigh Current Bidding Opportunities
-12. City of Tampa Purchasing
-13. Cobb County Purchasing
-14. Colorado BIDS Price Agreements
-15. Colorado Department of Human Services Procurement
-16. Colorado Department of Transportation Bidding
-17. Colorado State Purchasing and Contracts
-18. Colorado State University Procurement Services
-19. Colorado Vendor Self Service
-20. Colorado VSS Published Solicitations
-21. CPS Energy Procurement and Suppliers
-22. Denver International Airport Business Opportunities
-23. Denver Public Schools Purchasing
-24. Department of Defense Office of Small Business Programs
-25. Department of Health and Human Services Contracts
-26. Department of Homeland Security Vendor Resources
-27. Department of Labor Contract Opportunities
-28. Department of Transportation Procurement
-29. Department of Veterans Affairs Vendor Portal
-30. Douglas County Purchasing
-31. Equalis Group Current Solicitations
-32. Federal Procurement Data System
-33. Florida State Purchasing / MFMP
-34. Fulton County Bid Opportunities
-35. Georgia DOAS Bids and Contracts
-36. Georgia Procurement Registry
-37. GSA eBuy
-38. GSA Forecast of Contracting Opportunities
-39. GSA Multiple Award Schedule
-40. Gwinnett County Purchasing
-41. Hillsborough County Procurement
-42. Mecklenburg County Vendor Opportunities
-43. Metro Nashville Procurement
-44. Miami-Dade County Procurement
-45. MyFloridaMarketPlace Vendor Information Portal
-46. NC eProcurement
-47. North Carolina eVP Solicitations
-48. Orange County Florida OrangeBids
-49. Palm Beach County Purchasing
-50. RTD Procurement and Contracting
-51. Shelby County Purchasing
-52. Small Business Administration Contracting Guide
-53. Tennessee Board of Regents Procurement Opportunities
-54. Tennessee Central Procurement Office Supplier Info
-55. The Woodlands Township Bids
-56. UNC System Procurement
-57. University of Colorado Procurement Service Center
-58. University of Florida Procurement Bid Schedule
-59. University System of Georgia Procurement
-60. USAspending.gov
-61. Wake County Procurement Services
+4. City of Charlotte Procurement
+5. City of Houston Procurement
+6. City of Memphis Purchasing
+7. City of Orlando Procurement and Contracts
+8. City of Raleigh Current Bidding Opportunities
+9. Cobb County Purchasing
+10. Colorado Department of Human Services Procurement
+11. Colorado State University Procurement Services
+12. Colorado Vendor Self Service
+13. Colorado VSS Published Solicitations
+14. CPS Energy Procurement and Suppliers
+15. Denver International Airport Business Opportunities
+16. Equalis Group Current Solicitations
+17. Georgia Procurement Registry
+18. GSA Forecast of Contracting Opportunities
+19. Gwinnett County Purchasing
+20. Hillsborough County Procurement
+21. Mecklenburg County Vendor Opportunities
+22. Metro Nashville Procurement
+23. Miami-Dade County Procurement
+24. North Carolina eVP Solicitations
+25. Orange County Florida OrangeBids
+26. Palm Beach County Purchasing
+27. The Woodlands Township Bids
+28. Wake County Procurement Services
 
 ## Wired But Temporarily Rate-Limited
 
-1. City of Denton Purchasing
-2. City of Georgetown Purchasing
-3. Houston ISD Procurement
-4. Lone Star College Purchasing
-5. SAM.gov Contract Opportunities
-6. TIPS-USA Cooperative Bid Opportunities
+1. City of Georgetown Purchasing
+2. City of Irving Purchasing
+3. Goodbuy Purchasing Cooperative Bid Opportunities
+4. Houston ISD Procurement
+5. Lone Star College Purchasing
+6. SAM.gov Contract Opportunities
+7. TIPS-USA Cooperative Bid Opportunities
