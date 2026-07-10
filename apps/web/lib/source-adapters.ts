@@ -84,6 +84,13 @@ type IonWaveSource = {
   portalUrl: string;
   level: string;
 };
+type OpenGovSource = {
+  sourceName: string;
+  buyer: string;
+  portalCode: string;
+  portalUrl: string;
+  level: string;
+};
 const TEXAS_BONFIRE_SOURCES: BonfireSource[] = [
   {
     sourceName: "City of Dallas Procurement Services",
@@ -151,6 +158,24 @@ const TEXAS_BONFIRE_SOURCES: BonfireSource[] = [
     portalUrl: "https://dart.bonfirehub.com/portal/?tab=openOpportunities",
     level: "Adjacent",
   },
+  {
+    sourceName: "San Antonio ISD Purchasing",
+    buyer: "San Antonio ISD",
+    portalUrl: "https://saisd.bonfirehub.com/portal/?tab=openOpportunities",
+    level: "Education",
+  },
+  {
+    sourceName: "San Antonio River Authority Business Opportunities",
+    buyer: "San Antonio River Authority",
+    portalUrl: "https://sara-tx.bonfirehub.com/portal/?tab=openOpportunities",
+    level: "Adjacent",
+  },
+  {
+    sourceName: "North Texas Municipal Water District Business Opportunities",
+    buyer: "North Texas Municipal Water District",
+    portalUrl: "https://ntmwd.bonfirehub.com/portal/?tab=openOpportunities",
+    level: "Adjacent",
+  },
 ];
 const TEXAS_BONFIRE_SOURCE_BY_NAME = new Map(TEXAS_BONFIRE_SOURCES.map((source) => [source.sourceName, source]));
 const TEXAS_IONWAVE_SOURCES: IonWaveSource[] = [
@@ -205,6 +230,23 @@ const TEXAS_IONWAVE_SOURCES: IonWaveSource[] = [
   },
 ];
 const TEXAS_IONWAVE_SOURCE_BY_NAME = new Map(TEXAS_IONWAVE_SOURCES.map((source) => [source.sourceName, source]));
+const TEXAS_OPENGOV_SOURCES: OpenGovSource[] = [
+  {
+    sourceName: "Collin County Purchasing",
+    buyer: "Collin County",
+    portalCode: "collincountytx",
+    portalUrl: "https://procurement.opengov.com/portal/collincountytx",
+    level: "Local",
+  },
+  {
+    sourceName: "City of Sugar Land Purchasing",
+    buyer: "City of Sugar Land",
+    portalCode: "sugarlandtx",
+    portalUrl: "https://procurement.opengov.com/portal/sugarlandtx",
+    level: "Local",
+  },
+];
+const TEXAS_OPENGOV_SOURCE_BY_NAME = new Map(TEXAS_OPENGOV_SOURCES.map((source) => [source.sourceName, source]));
 const TENNESSEE_RFP_URL =
   "https://www.tn.gov/generalservices/procurement/central-procurement-office--cpo-/supplier-information/request-for-proposals--rfp--opportunities1.html";
 const TENNESSEE_ITB_URL =
@@ -224,6 +266,7 @@ const HANDLED_SOURCE_NAMES = new Set([
   ...TEXAS_ESBD_AGENCY_SOURCE_BY_NAME.keys(),
   ...TEXAS_BONFIRE_SOURCE_BY_NAME.keys(),
   ...TEXAS_IONWAVE_SOURCE_BY_NAME.keys(),
+  ...TEXAS_OPENGOV_SOURCE_BY_NAME.keys(),
   ...TEXAS_REFERENCE_SOURCE_NAMES,
 ]);
 const SERVER_BLOCKED_SOURCE_NAMES = new Set(["The Woodlands Township Bids"]);
@@ -242,6 +285,9 @@ const IONWAVE_ERROR_CACHE_MS = 3 * 60 * 1000;
 const IONWAVE_RATE_LIMIT_CACHE_MS = 8 * 60 * 1000;
 const IONWAVE_QUEUE_GAP_MS = 4500;
 const IONWAVE_FETCH_TIMEOUT_MS = 12000;
+const OPENGOV_SUCCESS_CACHE_MS = 10 * 60 * 1000;
+const OPENGOV_ERROR_CACHE_MS = 2 * 60 * 1000;
+const OPENGOV_FETCH_TIMEOUT_MS = 12000;
 const SEARCH_TASK_TIMEOUT_MS = 45000;
 const SEARCH_TOTAL_TIMEOUT_MS = 56000;
 const SEARCH_TASK_CONCURRENCY = 10;
@@ -258,6 +304,8 @@ const bonfireProjectsInFlight = getGlobalMap<Promise<ConnectorSearchResult & { p
 const ionWaveCache = getGlobalMap<{ expiresAt: number; value: ConnectorSearchResult }>("__govContractFinderIonWaveCache");
 const ionWaveInFlight = getGlobalMap<Promise<ConnectorSearchResult>>("__govContractFinderIonWaveInFlight");
 const ionWavePageCache = getGlobalMap<{ expiresAt: number; html: string }>("__govContractFinderIonWavePageCache");
+const openGovCache = getGlobalMap<{ expiresAt: number; value: ConnectorSearchResult }>("__govContractFinderOpenGovCache");
+const openGovInFlight = getGlobalMap<Promise<ConnectorSearchResult>>("__govContractFinderOpenGovInFlight");
 
 export async function searchConnectedSources({ query, state, level, sources }: SearchFilters): Promise<ConnectedSearchResponse> {
   const tasks: SearchTask[] = [];
@@ -337,6 +385,14 @@ export async function searchConnectedSources({ query, state, level, sources }: S
         continue;
       }
 
+      const texasOpenGovSource = TEXAS_OPENGOV_SOURCE_BY_NAME.get(source.source_name);
+      if (texasOpenGovSource) {
+        searchedSources.push(texasOpenGovSource.sourceName);
+        removePending(pendingSources, texasOpenGovSource.sourceName);
+        tasks.push({ source: texasOpenGovSource.sourceName, run: () => searchOpenGov(query, texasOpenGovSource) });
+        continue;
+      }
+
       const texasAgencySource = TEXAS_ESBD_AGENCY_SOURCE_BY_NAME.get(source.source_name);
       if (texasAgencySource) {
         searchedSources.push(texasAgencySource.sourceName);
@@ -370,7 +426,7 @@ export async function searchConnectedSources({ query, state, level, sources }: S
   const results = dedupeResults(settled.flatMap((item) => item.results).map((result) => enrichSearchResult(result, query)))
     .sort((a, b) => resultRankScore(b) - resultRankScore(a) || a.title.localeCompare(b.title))
     .slice(0, MAX_RESULTS);
-  const errors = settled.flatMap((item) => (item.error ? [`${item.source}: ${item.error}`] : []));
+  const errors = settled.flatMap((item) => (item.error && !isPendingConnectorIssue(item.error) ? [`${item.source}: ${item.error}`] : []));
   const sourceStatuses = [
     ...settled.map((item) => sourceStatusFromTaskResult(item)),
     ...pendingSources.map((sourceName) => ({
@@ -1009,6 +1065,19 @@ type BonfireProject = {
   DateClose?: string;
   DepartmentID?: string;
 };
+type OpenGovProject = {
+  id?: number;
+  financialId?: string;
+  title?: string;
+  status?: string;
+  summary?: string;
+  proposalDeadline?: string;
+  releaseProjectDate?: string;
+  department?: { name?: string };
+  government?: { organization?: { name?: string; phone?: string } };
+  template?: { title?: string };
+  addendums?: unknown[];
+};
 
 async function searchBonfire(query: string, source: BonfireSource): Promise<SearchTaskResult> {
   try {
@@ -1295,6 +1364,157 @@ function bonfireProjectToResult(
     applicationChecklist: applicationChecklist({ hasSolicitationId: Boolean(solicitationId), hasDeadline: Boolean(deadline), hasDocuments: true, hasContact: false }),
     summary: [solicitationId ? `Reference ${solicitationId}.` : "", deadline ? `Closes ${deadline}.` : ""].filter(Boolean).join(" "),
     nextAction: "Open the Bonfire opportunity, confirm scope and submission rules, then route it for human review.",
+  };
+}
+
+async function searchOpenGov(query: string, source: OpenGovSource): Promise<SearchTaskResult> {
+  try {
+    const cacheKey = `opengov:${source.sourceName}:${query.toLowerCase()}`;
+    const cached = openGovCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return { source: source.sourceName, ...cached.value };
+    }
+
+    const existingRequest = openGovInFlight.get(cacheKey);
+    if (existingRequest) {
+      return { source: source.sourceName, ...(await existingRequest) };
+    }
+
+    const request: Promise<ConnectorSearchResult> = fetchOpenGovProjects(source)
+      .then((projects) => ({ results: parseOpenGovProjects(projects, query, source) }))
+      .finally(() => {
+        openGovInFlight.delete(cacheKey);
+      });
+    openGovInFlight.set(cacheKey, request);
+
+    const value = await request;
+    openGovCache.set(cacheKey, {
+      expiresAt: Date.now() + (value.error ? OPENGOV_ERROR_CACHE_MS : OPENGOV_SUCCESS_CACHE_MS),
+      value,
+    });
+
+    return { source: source.sourceName, ...value };
+  } catch (error) {
+    return { source: source.sourceName, results: [], error: errorMessage(error) };
+  }
+}
+
+async function fetchOpenGovProjects(source: OpenGovSource): Promise<OpenGovProject[]> {
+  const url = `https://procurement.opengov.com/portal/embed/${source.portalCode}/project-list?departmentId=all&status=open`;
+  const response = await fetchWithTimeout(
+    url,
+    {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 GovContractFinder/0.1",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        Referer: source.portalUrl,
+      },
+      cache: "no-store",
+    },
+    OPENGOV_FETCH_TIMEOUT_MS,
+  );
+
+  if (!response.ok) {
+    throw new Error(`OpenGov portal returned ${response.status}`);
+  }
+
+  return extractOpenGovProjectRows(await response.text());
+}
+
+function extractOpenGovProjectRows(html: string): OpenGovProject[] {
+  const govProjectsIndex = html.indexOf("\"govProjects\"");
+  if (govProjectsIndex < 0) {
+    throw new Error("OpenGov state did not include public project data");
+  }
+
+  const rowsIndex = html.indexOf("\"rows\":[", govProjectsIndex);
+  if (rowsIndex < 0) {
+    return [];
+  }
+
+  const arrayStart = html.indexOf("[", rowsIndex);
+  const arrayEnd = findJsonArrayEnd(html, arrayStart);
+  if (arrayStart < 0 || arrayEnd < 0) {
+    throw new Error("OpenGov project rows could not be parsed");
+  }
+
+  return JSON.parse(html.slice(arrayStart, arrayEnd + 1)) as OpenGovProject[];
+}
+
+function parseOpenGovProjects(projects: OpenGovProject[], query: string, source: OpenGovSource): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+
+  return projects
+    .map((project, index) => openGovProjectToResult(project, terms, index, source))
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+function openGovProjectToResult(
+  project: OpenGovProject,
+  terms: string[],
+  index: number,
+  source: OpenGovSource,
+): UnifiedSearchResult | undefined {
+  const title = project.title?.trim();
+  if (!title || project.status?.toLowerCase() !== "open") {
+    return undefined;
+  }
+
+  const summary = htmlToText(project.summary ?? "");
+  const solicitationId = project.financialId?.trim();
+  const deadline = formatOpenGovDate(project.proposalDeadline);
+  const postedDate = formatOpenGovDate(project.releaseProjectDate);
+  const buyer = project.government?.organization?.name?.trim() || source.buyer;
+  const department = project.department?.name?.trim();
+  const procurementType = project.template?.title?.trim();
+  const haystack = [title, summary, solicitationId, buyer, department, procurementType].filter(Boolean).join(" ").toLowerCase();
+  const score = scoreOpportunity(haystack, terms, 80 - Math.min(index, 40));
+
+  if (terms.length > 0 && score <= 0) {
+    return undefined;
+  }
+
+  if (isPastDeadline(deadline)) {
+    return undefined;
+  }
+
+  const documents = [
+    procurementType ? `Procurement type: ${procurementType}` : undefined,
+    department ? `Department: ${department}` : undefined,
+    project.addendums?.length ? `${project.addendums.length} addendum/addenda posted` : undefined,
+  ].filter((item): item is string => Boolean(item));
+  const projectUrl = project.id ? `${source.portalUrl}/projects/${project.id}` : source.portalUrl;
+
+  return {
+    id: `opengov:${source.sourceName}:${project.id ?? solicitationId ?? title}`,
+    resultType: "opportunity",
+    title: [procurementType, solicitationId, title].filter(Boolean).join(" "),
+    buyer,
+    sourceName: source.sourceName,
+    sourceLevel: source.level,
+    sourceState: "TX",
+    sourceType: "OpenGov public portal",
+    url: projectUrl,
+    portalUrl: source.portalUrl,
+    score,
+    status: "Open public opportunity",
+    solicitationId,
+    deadline,
+    postedDate,
+    contact: project.government?.organization?.phone,
+    documents,
+    submissionInstructions:
+      "Open the OpenGov posting, create or sign in to the vendor account if required, download the solicitation documents and addenda, then submit through OpenGov before the close date.",
+    applicationChecklist: applicationChecklist({
+      hasSolicitationId: Boolean(solicitationId),
+      hasDeadline: Boolean(deadline),
+      hasDocuments: documents.length > 0,
+      hasContact: Boolean(project.government?.organization?.phone),
+    }),
+    summary: [summary, department ? `Department: ${department}.` : "", deadline ? `Closes ${deadline}.` : ""].filter(Boolean).join(" "),
+    nextAction: "Open the OpenGov posting, confirm the scope and required attachments, then route it for human review.",
   };
 }
 
@@ -1648,7 +1868,7 @@ function enrichSearchResult(result: UnifiedSearchResult, query: string): Unified
     fitReasons.push(`Matches ${matchedTerms.slice(0, 4).join(", ")}.`);
   }
 
-  if (/official|api|esbd|bonfire/i.test(result.sourceType)) {
+  if (/official|api|esbd|bonfire|opengov/i.test(result.sourceType)) {
     fitScore += 8;
     fitReasons.push("Found through an official procurement source.");
   }
@@ -1706,7 +1926,7 @@ function enrichSearchResult(result: UnifiedSearchResult, query: string): Unified
 
 function sourceStatusFromTaskResult(result: SearchTaskResult): SourceSearchStatus {
   if (result.error) {
-    const status = /rate limited/i.test(result.error) ? "pending" : "error";
+    const status = isPendingConnectorIssue(result.error) ? "pending" : "error";
     return {
       sourceName: result.source,
       status,
@@ -1723,6 +1943,10 @@ function sourceStatusFromTaskResult(result: SearchTaskResult): SourceSearchStatu
     resultCount: result.results.length,
     durationMs: result.durationMs,
   };
+}
+
+function isPendingConnectorIssue(error: string) {
+  return /rate limited|timed out|not completed/i.test(error);
 }
 
 function pendingSourceMessage(sourceName: string) {
@@ -1927,6 +2151,68 @@ function parseDeadlineDate(deadline?: string) {
   const year = Number(namedMatch[3]);
 
   return month >= 0 && day && year ? new Date(year, month, day) : undefined;
+}
+
+function formatOpenGovDate(value?: string) {
+  if (!value) {
+    return undefined;
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return parsed.toLocaleDateString("en-US", {
+    month: "numeric",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "America/Chicago",
+  });
+}
+
+function findJsonArrayEnd(value: string, startIndex: number) {
+  if (startIndex < 0 || value[startIndex] !== "[") {
+    return -1;
+  }
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = startIndex; index < value.length; index += 1) {
+    const char = value[index];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+
+    if (char === "[") {
+      depth += 1;
+      continue;
+    }
+
+    if (char === "]") {
+      depth -= 1;
+      if (depth === 0) {
+        return index;
+      }
+    }
+  }
+
+  return -1;
 }
 
 function matchesFilter({

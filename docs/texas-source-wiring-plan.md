@@ -47,7 +47,6 @@ These sources are searched through official ESBD buyer/member numbers, with exac
 
 ### Custom Page Parser
 
-- The Woodlands Township Bids: official open-bids page parser.
 - City of Austin Purchasing: official Austin Finance Online active solicitation list plus detail-page parser.
 - City of Frisco Purchasing: official current-bids page parser, used as a stable fallback even though Frisco also posts to Bonfire.
 
@@ -65,6 +64,16 @@ These sources are wired to Bonfire's public open-opportunities JSON endpoint wit
 - Austin ISD Purchasing
 - DFW Airport Solicitations
 - DART Procurement
+- San Antonio ISD Purchasing
+- San Antonio River Authority Business Opportunities
+- North Texas Municipal Water District Business Opportunities
+
+### OpenGov Public Portals
+
+These sources are wired to OpenGov's public procurement portal state for currently open projects.
+
+- Collin County Purchasing
+- City of Sugar Land Purchasing
 
 ### IonWave / Euna Public Bid Tables
 
@@ -100,7 +109,7 @@ These sources still need source-specific connector work. The next pass should id
 - Harris County Purchasing: wired through Bonfire.
 - City of Plano Purchasing: wired through IonWave public current-bids table.
 - City of Frisco Purchasing: wired through official current-bids page, with Bonfire available after cooldown.
-- Collin County Purchasing: first static fetch returned no parseable content; inspect with browser or alternate endpoint.
+- Collin County Purchasing: wired through OpenGov public open-project portal.
 - City of Denton Purchasing: wired through IonWave public current-bids table.
 - Denton County Purchasing: wired through Bonfire; currently returns zero open projects.
 
@@ -109,12 +118,13 @@ These sources still need source-specific connector work. The next pass should id
 - City of Midland Purchasing: wired through Bonfire; currently returns zero open projects.
 - Midland County Purchasing
 - Ector County Purchasing
-- City of Sugar Land Purchasing
+- City of Sugar Land Purchasing: wired through OpenGov public open-project portal.
 - City of Round Rock Purchasing: wired through Bonfire.
 - City of McKinney Purchasing: wired through Bonfire.
 - City of Allen Purchasing
 - City of Addison Purchasing
 - City of Georgetown Purchasing: wired through IonWave public current-bids table.
+- The Woodlands Township Bids: parser exists, but the source blocks Vercel/server-side fetching, so it remains pending until an alert-email workflow or approved browser collector is added.
 
 ### Priority 3: Airports, Transit, Utilities, Ports, Authorities
 
@@ -127,25 +137,26 @@ These sources still need source-specific connector work. The next pass should id
 - Houston METRO Procurement
 - North Texas Tollway Authority Procurement
 - Capital Area Council of Governments Procurement
-- San Antonio River Authority Business Opportunities
+- San Antonio River Authority Business Opportunities: wired through Bonfire.
 - CPS Energy Procurement and Suppliers
 - Austin Energy Vendor Information
 - San Antonio Water System Purchasing
-- North Texas Municipal Water District Business Opportunities
+- North Texas Municipal Water District Business Opportunities: wired through Bonfire.
 - Port Houston Procurement
 
 ### Priority 4: Education Sources Not Covered By ESBD
 
 - Austin ISD Purchasing: wired through Bonfire.
 - Houston ISD Procurement: wired through IonWave public current-bids table.
-- San Antonio ISD Purchasing
+- San Antonio ISD Purchasing: wired through Bonfire.
 - Dallas College Supplier Information
 - Lone Star College Purchasing: wired through IonWave public current-bids table.
 
 ## Next Connector Families To Investigate
 
-1. Bonfire portals: working for Dallas, Harris County, Fort Worth, Frisco, Round Rock, McKinney, Austin ISD, and DFW Airport. Keep adding confirmed Texas Bonfire hosts one at a time.
+1. Bonfire portals: working for Dallas, Harris County, Fort Worth, Frisco, Round Rock, McKinney, Austin ISD, DFW Airport, DART, SAISD, San Antonio River Authority, and North Texas Municipal Water District. Keep adding confirmed Texas Bonfire hosts one at a time.
 2. IonWave portals: connector family is implemented. Continue adding confirmed Texas IonWave hosts one at a time, with rate-limit-safe queueing and page caching.
-3. CivicPlus/official HTML pages: implement parsers only where the page contains current bid rows or downloadable bid documents.
-4. Airport/transit/utility portals: Port Houston uses Workday Strategic Sourcing; Houston uses Beacon; Bexar uses Infor/CivCast; Addison uses BidNet Direct. Each needs a specific connector or non-scraping alert workflow if blocked.
-5. Blocked sites: CAPCOG and The Woodlands currently block server-side requests; do not mark either working until a non-blocked official feed, approved alert-email workflow, or browser collector exists.
+3. OpenGov portals: connector family is implemented for Collin County and Sugar Land. Add any newly confirmed Texas OpenGov hosts through the same parser.
+4. CivicPlus/official HTML pages: implement parsers only where the page contains current bid rows or downloadable bid documents.
+5. Airport/transit/utility portals: Port Houston uses Workday Strategic Sourcing; Houston uses Beacon; Bexar uses Infor/CivCast; Addison uses BidNet Direct. Each needs a specific connector or non-scraping alert workflow if blocked.
+6. Blocked sites: CAPCOG and The Woodlands currently block server-side requests; do not mark either working until a non-blocked official feed, approved alert-email workflow, or browser collector exists.
