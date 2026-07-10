@@ -187,7 +187,7 @@ export function GovContractsShell({
     setLastSearchFilters(searchFilters);
     setSearchBusy(true);
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 45000);
+    const timeout = window.setTimeout(() => controller.abort(), 65000);
     try {
       const params = new URLSearchParams({ q: concept, state, level });
       if (options.forceRefresh) {

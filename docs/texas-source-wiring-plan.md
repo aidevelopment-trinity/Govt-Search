@@ -66,6 +66,18 @@ These sources are wired to Bonfire's public open-opportunities JSON endpoint wit
 - DFW Airport Solicitations
 - DART Procurement
 
+### IonWave / Euna Public Bid Tables
+
+These sources are wired to IonWave's public `SourcingEvents.aspx` current-bids table with queued requests and response caching. IonWave will rate-limit when hit too quickly, so these connectors intentionally run slower than the ESBD and Bonfire connectors.
+
+- Tarrant County Purchasing
+- City of Plano Purchasing
+- City of Denton Purchasing
+- City of Irving Purchasing
+- City of Georgetown Purchasing
+- Lone Star College Purchasing
+- Houston ISD Procurement
+
 ## Reference Resources
 
 These are important for vendor setup, alerts, and eligibility, but they are not opportunity-search feeds.
@@ -82,14 +94,14 @@ These sources still need source-specific connector work. The next pass should id
 
 - City of Austin Purchasing: wired through Austin Finance Online.
 - City of Fort Worth Purchasing: wired through Bonfire.
-- Tarrant County Purchasing: official page links to `https://tarrantcountytx.ionwave.net/Login.aspx`; implement IonWave connector.
+- Tarrant County Purchasing: wired through IonWave public current-bids table.
 - Bexar County Purchasing: official page links to Infor supplier portal and CivCast for road/repair/construction; identify current solicitation feed for professional services.
 - City of Houston Procurement: official page links to Beacon; Beacon returns AWS WAF human verification to server-side requests, so this needs a non-CAPTCHA feed or approved vendor-alert workflow.
 - Harris County Purchasing: wired through Bonfire.
-- City of Plano Purchasing: source URL currently resolves to unrelated CivicEngage content; find current purchasing/opportunity URL.
+- City of Plano Purchasing: wired through IonWave public current-bids table.
 - City of Frisco Purchasing: wired through official current-bids page, with Bonfire available after cooldown.
 - Collin County Purchasing: first static fetch returned no parseable content; inspect with browser or alternate endpoint.
-- City of Denton Purchasing: source URL currently resolves to unrelated content; find current purchasing/opportunity URL.
+- City of Denton Purchasing: wired through IonWave public current-bids table.
 - Denton County Purchasing: wired through Bonfire; currently returns zero open projects.
 
 ### Priority 2: High-Income / Fast-Growth Local Buyers
@@ -102,6 +114,7 @@ These sources still need source-specific connector work. The next pass should id
 - City of McKinney Purchasing: wired through Bonfire.
 - City of Allen Purchasing
 - City of Addison Purchasing
+- City of Georgetown Purchasing: wired through IonWave public current-bids table.
 
 ### Priority 3: Airports, Transit, Utilities, Ports, Authorities
 
@@ -124,14 +137,15 @@ These sources still need source-specific connector work. The next pass should id
 ### Priority 4: Education Sources Not Covered By ESBD
 
 - Austin ISD Purchasing: wired through Bonfire.
-- Houston ISD Procurement
+- Houston ISD Procurement: wired through IonWave public current-bids table.
 - San Antonio ISD Purchasing
 - Dallas College Supplier Information
+- Lone Star College Purchasing: wired through IonWave public current-bids table.
 
 ## Next Connector Families To Investigate
 
 1. Bonfire portals: working for Dallas, Harris County, Fort Worth, Frisco, Round Rock, McKinney, Austin ISD, and DFW Airport. Keep adding confirmed Texas Bonfire hosts one at a time.
-2. IonWave portals: start with City of Irving, then map common Texas city, county, school, and college IonWave hosts.
+2. IonWave portals: connector family is implemented. Continue adding confirmed Texas IonWave hosts one at a time, with rate-limit-safe queueing and page caching.
 3. CivicPlus/official HTML pages: implement parsers only where the page contains current bid rows or downloadable bid documents.
 4. Airport/transit/utility portals: Port Houston uses Workday Strategic Sourcing; Houston uses Beacon; Bexar uses Infor/CivCast; Addison uses BidNet Direct. Each needs a specific connector or non-scraping alert workflow if blocked.
-5. Blocked sites: CAPCOG currently blocks server-side requests with Cloudflare; do not mark it working until a non-blocked official feed or approved workflow exists.
+5. Blocked sites: CAPCOG and The Woodlands currently block server-side requests; do not mark either working until a non-blocked official feed, approved alert-email workflow, or browser collector exists.

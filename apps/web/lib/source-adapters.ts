@@ -77,6 +77,13 @@ type BonfireSource = {
   portalUrl: string;
   level: string;
 };
+type IonWaveSource = {
+  sourceName: string;
+  buyer: string;
+  currentBidsUrl: string;
+  portalUrl: string;
+  level: string;
+};
 const TEXAS_BONFIRE_SOURCES: BonfireSource[] = [
   {
     sourceName: "City of Dallas Procurement Services",
@@ -146,6 +153,58 @@ const TEXAS_BONFIRE_SOURCES: BonfireSource[] = [
   },
 ];
 const TEXAS_BONFIRE_SOURCE_BY_NAME = new Map(TEXAS_BONFIRE_SOURCES.map((source) => [source.sourceName, source]));
+const TEXAS_IONWAVE_SOURCES: IonWaveSource[] = [
+  {
+    sourceName: "Tarrant County Purchasing",
+    buyer: "Tarrant County",
+    currentBidsUrl: "https://tarrantcountytx.ionwave.net/SourcingEvents.aspx?SourceType=1",
+    portalUrl: "https://tarrantcountytx.ionwave.net/Login.aspx",
+    level: "Local",
+  },
+  {
+    sourceName: "City of Plano Purchasing",
+    buyer: "City of Plano",
+    currentBidsUrl: "https://planotx.ionwave.net/SourcingEvents.aspx?SourceType=1",
+    portalUrl: "https://planotx.ionwave.net/Login.aspx",
+    level: "Local",
+  },
+  {
+    sourceName: "City of Denton Purchasing",
+    buyer: "City of Denton",
+    currentBidsUrl: "https://dentontx.ionwave.net/SourcingEvents.aspx?SourceType=112",
+    portalUrl: "https://dentontx.ionwave.net/Login.aspx",
+    level: "Local",
+  },
+  {
+    sourceName: "City of Irving Purchasing",
+    buyer: "City of Irving",
+    currentBidsUrl: "https://cityofirving.ionwave.net/SourcingEvents.aspx?SourceType=1",
+    portalUrl: "https://cityofirving.ionwave.net/Login.aspx",
+    level: "Local",
+  },
+  {
+    sourceName: "City of Georgetown Purchasing",
+    buyer: "City of Georgetown",
+    currentBidsUrl: "https://gtowntx.ionwave.net/SourcingEvents.aspx?SourceType=1",
+    portalUrl: "https://gtowntx.ionwave.net/Login.aspx",
+    level: "Local",
+  },
+  {
+    sourceName: "Lone Star College Purchasing",
+    buyer: "Lone Star College System",
+    currentBidsUrl: "https://lonestar.ionwave.net/SourcingEvents.aspx?SourceType=1",
+    portalUrl: "https://lonestar.ionwave.net/Login.aspx",
+    level: "Education",
+  },
+  {
+    sourceName: "Houston ISD Procurement",
+    buyer: "Houston ISD",
+    currentBidsUrl: "https://houstonisd.ionwave.net/SourcingEvents.aspx?SourceType=114",
+    portalUrl: "https://houstonisd.ionwave.net/Login.aspx",
+    level: "Education",
+  },
+];
+const TEXAS_IONWAVE_SOURCE_BY_NAME = new Map(TEXAS_IONWAVE_SOURCES.map((source) => [source.sourceName, source]));
 const TENNESSEE_RFP_URL =
   "https://www.tn.gov/generalservices/procurement/central-procurement-office--cpo-/supplier-information/request-for-proposals--rfp--opportunities1.html";
 const TENNESSEE_ITB_URL =
@@ -164,8 +223,10 @@ const HANDLED_SOURCE_NAMES = new Set([
   "Tennessee ITB Opportunities",
   ...TEXAS_ESBD_AGENCY_SOURCE_BY_NAME.keys(),
   ...TEXAS_BONFIRE_SOURCE_BY_NAME.keys(),
+  ...TEXAS_IONWAVE_SOURCE_BY_NAME.keys(),
   ...TEXAS_REFERENCE_SOURCE_NAMES,
 ]);
+const SERVER_BLOCKED_SOURCE_NAMES = new Set(["The Woodlands Township Bids"]);
 const SAM_SUCCESS_CACHE_MS = 15 * 60 * 1000;
 const SAM_ERROR_CACHE_MS = 2 * 60 * 1000;
 const SAM_RATE_LIMIT_CACHE_MS = 10 * 60 * 1000;
@@ -176,8 +237,13 @@ const BONFIRE_ERROR_CACHE_MS = 90 * 1000;
 const BONFIRE_RATE_LIMIT_CACHE_MS = 5 * 60 * 1000;
 const BONFIRE_QUEUE_GAP_MS = 2500;
 const BONFIRE_FETCH_TIMEOUT_MS = 12000;
-const SEARCH_TASK_TIMEOUT_MS = 28000;
-const SEARCH_TOTAL_TIMEOUT_MS = 34000;
+const IONWAVE_SUCCESS_CACHE_MS = 10 * 60 * 1000;
+const IONWAVE_ERROR_CACHE_MS = 3 * 60 * 1000;
+const IONWAVE_RATE_LIMIT_CACHE_MS = 8 * 60 * 1000;
+const IONWAVE_QUEUE_GAP_MS = 4500;
+const IONWAVE_FETCH_TIMEOUT_MS = 12000;
+const SEARCH_TASK_TIMEOUT_MS = 45000;
+const SEARCH_TOTAL_TIMEOUT_MS = 56000;
 const SEARCH_TASK_CONCURRENCY = 10;
 const MAX_RESULTS = 120;
 
@@ -189,6 +255,9 @@ const bonfireProjectsCache = getGlobalMap<{ expiresAt: number; projects: Bonfire
 const bonfireProjectsInFlight = getGlobalMap<Promise<ConnectorSearchResult & { projects?: BonfireProject[] }>>(
   "__govContractFinderBonfireProjectsInFlight",
 );
+const ionWaveCache = getGlobalMap<{ expiresAt: number; value: ConnectorSearchResult }>("__govContractFinderIonWaveCache");
+const ionWaveInFlight = getGlobalMap<Promise<ConnectorSearchResult>>("__govContractFinderIonWaveInFlight");
+const ionWavePageCache = getGlobalMap<{ expiresAt: number; html: string }>("__govContractFinderIonWavePageCache");
 
 export async function searchConnectedSources({ query, state, level, sources }: SearchFilters): Promise<ConnectedSearchResponse> {
   const tasks: SearchTask[] = [];
@@ -233,6 +302,10 @@ export async function searchConnectedSources({ query, state, level, sources }: S
       continue;
     }
 
+    if (SERVER_BLOCKED_SOURCE_NAMES.has(source.source_name)) {
+      continue;
+    }
+
     if (matchesFilter({ sourceState: source.state, sourceLevel: source.level, state, level })) {
       if (source.source_name === "City of Austin Purchasing") {
         searchedSources.push("City of Austin Purchasing");
@@ -245,6 +318,14 @@ export async function searchConnectedSources({ query, state, level, sources }: S
         searchedSources.push("City of Frisco Purchasing");
         removePending(pendingSources, "City of Frisco Purchasing");
         tasks.push({ source: "City of Frisco Purchasing", run: () => searchFriscoCurrentBids(query) });
+        continue;
+      }
+
+      const texasIonWaveSource = TEXAS_IONWAVE_SOURCE_BY_NAME.get(source.source_name);
+      if (texasIonWaveSource) {
+        searchedSources.push(texasIonWaveSource.sourceName);
+        removePending(pendingSources, texasIonWaveSource.sourceName);
+        tasks.push({ source: texasIonWaveSource.sourceName, run: () => searchIonWave(query, texasIonWaveSource) });
         continue;
       }
 
@@ -280,13 +361,9 @@ export async function searchConnectedSources({ query, state, level, sources }: S
       continue;
     }
 
-    if (source.state === "TX") {
-      continue;
-    }
-
-    searchedSources.push(source.source_name);
-    removePending(pendingSources, source.source_name);
-    tasks.push({ source: source.source_name, run: () => searchOfficialSource(query, source) });
+    // Do not treat generic procurement homepages as connected searches. Each
+    // source needs a real portal/API/page connector before it is counted.
+    continue;
   }
 
   const settled = await runSearchTasks(tasks, SEARCH_TASK_CONCURRENCY, SEARCH_TOTAL_TIMEOUT_MS);
@@ -1038,6 +1115,136 @@ async function fetchBonfireProjects(source: BonfireSource): Promise<ConnectorSea
   }
 }
 
+async function searchIonWave(query: string, source: IonWaveSource): Promise<SearchTaskResult> {
+  try {
+    const cacheKey = `ionwave:${source.sourceName}:${query.toLowerCase()}`;
+    const cached = ionWaveCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return { source: source.sourceName, ...cached.value };
+    }
+
+    const existingRequest = ionWaveInFlight.get(cacheKey);
+    if (existingRequest) {
+      return { source: source.sourceName, ...(await existingRequest) };
+    }
+
+    const request = runIonWaveQueued(() => fetchIonWaveCurrentBids(query, source)).finally(() => {
+      ionWaveInFlight.delete(cacheKey);
+    });
+    ionWaveInFlight.set(cacheKey, request);
+
+    const value = await request;
+    const ttl = value.error?.includes("rate limited")
+      ? IONWAVE_RATE_LIMIT_CACHE_MS
+      : value.error
+        ? IONWAVE_ERROR_CACHE_MS
+        : IONWAVE_SUCCESS_CACHE_MS;
+    ionWaveCache.set(cacheKey, { expiresAt: Date.now() + ttl, value });
+
+    return { source: source.sourceName, ...value };
+  } catch (error) {
+    return { source: source.sourceName, results: [], error: errorMessage(error) };
+  }
+}
+
+async function fetchIonWaveCurrentBids(query: string, source: IonWaveSource): Promise<ConnectorSearchResult> {
+  const cachedPage = ionWavePageCache.get(source.currentBidsUrl);
+  if (cachedPage && cachedPage.expiresAt > Date.now()) {
+    return { results: parseIonWaveRows(cachedPage.html, query, source) };
+  }
+
+  const response = await fetchWithTimeout(
+    source.currentBidsUrl,
+    {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 GovContractFinder/0.1",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        Referer: source.portalUrl,
+      },
+      cache: "no-store",
+    },
+    IONWAVE_FETCH_TIMEOUT_MS,
+  );
+
+  if (response.status === 429) {
+    return { results: [], error: "IonWave rate limited the public bid table; connector is queued and cached, retry after cooldown." };
+  }
+
+  if (!response.ok) {
+    return { results: [], error: `IonWave public bid table returned ${response.status}` };
+  }
+
+  const html = await response.text();
+  ionWavePageCache.set(source.currentBidsUrl, { expiresAt: Date.now() + IONWAVE_SUCCESS_CACHE_MS, html });
+  return { results: parseIonWaveRows(html, query, source) };
+}
+
+function parseIonWaveRows(html: string, query: string, source: IonWaveSource): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+  const rows = Array.from(html.matchAll(/<tr\b[^>]*class=(["'])[^"']*\brg(?:Alt)?Row\b[^"']*\1[^>]*>([\s\S]*?)<\/tr>/gi));
+
+  return rows
+    .map((row, index) => ionWaveRowToResult(row[2], terms, index, source))
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+function ionWaveRowToResult(rowHtml: string, terms: string[], index: number, source: IonWaveSource): UnifiedSearchResult | undefined {
+  const cells = Array.from(rowHtml.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)).map((match) => cleanText(match[1]));
+  if (cells.length < 6) {
+    return undefined;
+  }
+
+  const visibleCells = cells.filter((cell) => cell.length > 0);
+  const solicitationId = visibleCells[0];
+  const bidTitle = visibleCells[1];
+  const bidType = visibleCells[2];
+  const organization = visibleCells.length >= 6 ? visibleCells[3] : undefined;
+  const postedDate = visibleCells.length >= 6 ? visibleCells[4] : visibleCells[3];
+  const deadline = visibleCells.length >= 6 ? visibleCells[5] : visibleCells[4];
+  const title = [bidType, solicitationId, bidTitle].filter(Boolean).join(" ");
+  const haystack = [title, source.buyer, organization, postedDate, deadline].filter(Boolean).join(" ").toLowerCase();
+  const score = scoreOpportunity(haystack, terms, 76 - Math.min(index, 40));
+
+  if (!solicitationId || !bidTitle) {
+    return undefined;
+  }
+
+  if (terms.length > 0 && score <= 0) {
+    return undefined;
+  }
+
+  if (isPastDeadline(deadline)) {
+    return undefined;
+  }
+
+  return {
+    id: `ionwave:${source.sourceName}:${solicitationId}:${bidTitle}`,
+    resultType: "opportunity",
+    title,
+    buyer: source.buyer,
+    sourceName: source.sourceName,
+    sourceLevel: source.level,
+    sourceState: "TX",
+    sourceType: "IonWave public bid table",
+    url: source.currentBidsUrl,
+    portalUrl: source.portalUrl,
+    score,
+    status: "Open public bid",
+    solicitationId,
+    deadline,
+    postedDate,
+    submissionInstructions:
+      "Open the IonWave current-bids table, register or sign in if required, download the bid packet and addenda, then submit through IonWave before the close date.",
+    applicationChecklist: applicationChecklist({ hasSolicitationId: true, hasDeadline: Boolean(deadline), hasDocuments: false, hasContact: false }),
+    summary: [bidType ? `${bidType} opportunity.` : "", postedDate ? `Issued ${postedDate}.` : "", deadline ? `Closes ${deadline}.` : ""]
+      .filter(Boolean)
+      .join(" "),
+    nextAction: "Open the IonWave posting, confirm scope and submission rules, then route it for human review.",
+  };
+}
+
 function parseBonfireProjects(projects: BonfireProject[], query: string, source: BonfireSource): UnifiedSearchResult[] {
   const terms = conceptTerms(query);
 
@@ -1499,9 +1706,10 @@ function enrichSearchResult(result: UnifiedSearchResult, query: string): Unified
 
 function sourceStatusFromTaskResult(result: SearchTaskResult): SourceSearchStatus {
   if (result.error) {
+    const status = /rate limited/i.test(result.error) ? "pending" : "error";
     return {
       sourceName: result.source,
-      status: "error",
+      status,
       message: connectorMessage(result.error),
       resultCount: result.results.length,
       durationMs: result.durationMs,
@@ -1520,6 +1728,10 @@ function sourceStatusFromTaskResult(result: SearchTaskResult): SourceSearchStatu
 function pendingSourceMessage(sourceName: string) {
   if (/sam\.gov/i.test(sourceName)) {
     return "Listed but not searched because the SAM.gov API key is not configured in this environment.";
+  }
+
+  if (SERVER_BLOCKED_SOURCE_NAMES.has(sourceName)) {
+    return "Official page blocks Vercel/server-side fetching; use a vendor alert/email ingestion or browser collector before marking this source live.";
   }
 
   return "Listed in the source directory, but live search for this source is not wired yet.";
@@ -1859,6 +2071,23 @@ async function runBonfireQueued<T>(task: () => Promise<T>): Promise<T> {
     return await task();
   } finally {
     await delay(BONFIRE_QUEUE_GAP_MS);
+    release();
+  }
+}
+
+async function runIonWaveQueued<T>(task: () => Promise<T>): Promise<T> {
+  const globalStore = globalThis as typeof globalThis & { __govContractFinderIonWaveQueue?: Promise<void> };
+  const previous = globalStore.__govContractFinderIonWaveQueue ?? Promise.resolve();
+  let release!: () => void;
+  globalStore.__govContractFinderIonWaveQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  await previous.catch(() => undefined);
+  try {
+    return await task();
+  } finally {
+    await delay(IONWAVE_QUEUE_GAP_MS);
     release();
   }
 }
