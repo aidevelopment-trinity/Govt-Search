@@ -10,6 +10,11 @@ export type ProcurementSource = {
   status: string;
 };
 
+export type OpportunityDocumentLink = {
+  label: string;
+  url: string;
+};
+
 export type UnifiedSearchResult = {
   id: string;
   resultType: "opportunity";
@@ -29,6 +34,7 @@ export type UnifiedSearchResult = {
   budget?: string;
   contact?: string;
   documents?: string[];
+  documentLinks?: OpportunityDocumentLink[];
   submissionInstructions?: string;
   applicationChecklist?: string[];
   fitReasons?: string[];

@@ -1,7 +1,7 @@
 import "server-only";
 
 import { conceptTerms, samSearchUrl } from "@/lib/gov-search";
-import type { ProcurementSource, SourceSearchStatus, UnifiedSearchResult } from "@/lib/gov-types";
+import type { OpportunityDocumentLink, ProcurementSource, SourceSearchStatus, UnifiedSearchResult } from "@/lib/gov-types";
 
 type SearchFilters = {
   query: string;
@@ -90,6 +90,7 @@ type OpenGovSource = {
   portalCode: string;
   portalUrl: string;
   level: string;
+  departmentId?: string;
 };
 type WorkdaySource = {
   sourceName: string;
@@ -247,6 +248,20 @@ const TEXAS_IONWAVE_SOURCES: IonWaveSource[] = [
     portalUrl: "https://sawsbid.ionwave.net/Login.aspx",
     level: "Adjacent",
   },
+  {
+    sourceName: "TIPS-USA Cooperative Bid Opportunities",
+    buyer: "TIPS-USA / The Interlocal Purchasing System",
+    currentBidsUrl: "https://tips.ionwave.net/SourcingEvents.aspx?SourceType=1",
+    portalUrl: "https://tips.ionwave.net/Login.aspx",
+    level: "Adjacent",
+  },
+  {
+    sourceName: "Goodbuy Purchasing Cooperative Bid Opportunities",
+    buyer: "Goodbuy Purchasing Cooperative / ESC Region 2",
+    currentBidsUrl: "https://goodbuy.ionwave.net/SourcingEvents.aspx?SourceType=1",
+    portalUrl: "https://goodbuy.ionwave.net/Login.aspx",
+    level: "Adjacent",
+  },
 ];
 const TEXAS_IONWAVE_SOURCE_BY_NAME = new Map(TEXAS_IONWAVE_SOURCES.map((source) => [source.sourceName, source]));
 const TEXAS_OPENGOV_SOURCES: OpenGovSource[] = [
@@ -271,6 +286,14 @@ const TEXAS_OPENGOV_SOURCES: OpenGovSource[] = [
     portalUrl: "https://procurement.opengov.com/portal/ectorcountytx",
     level: "Local",
   },
+  {
+    sourceName: "HGACBuy Cooperative Bid/RFP Notices",
+    buyer: "HGACBuy / Houston-Galveston Area Council",
+    portalCode: "h-gac",
+    portalUrl: "https://procurement.opengov.com/portal/h-gac?departmentId=3252&status=open",
+    level: "Adjacent",
+    departmentId: "3252",
+  },
 ];
 const TEXAS_OPENGOV_SOURCE_BY_NAME = new Map(TEXAS_OPENGOV_SOURCES.map((source) => [source.sourceName, source]));
 const TEXAS_WORKDAY_SOURCES: WorkdaySource[] = [
@@ -292,6 +315,11 @@ const TENNESSEE_RFP_URL =
   "https://www.tn.gov/generalservices/procurement/central-procurement-office--cpo-/supplier-information/request-for-proposals--rfp--opportunities1.html";
 const TENNESSEE_ITB_URL =
   "https://www.tn.gov/generalservices/procurement/central-procurement-office--cpo-/supplier-information/invitations-to-bid--itb-.html";
+const TEXAS_DIR_SOLICITATION_SCHEDULE_URL =
+  "https://dir.texas.gov/it-solutions-and-services/selling-through-dir/schedule-of-solicitation-opportunities";
+const BUYBOARD_PROPOSAL_INVITATIONS_URL = "https://www.buyboard.com/vendor/proposal-invitations";
+const OMNIA_SOLICITATIONS_URL = "https://www.omniapartners.com/get-started/solicitations";
+const EQUALIS_SOLICITATIONS_URL = "https://equalisgroup.org/current-solicitations/";
 const THE_WOODLANDS_BIDS_URL =
   "https://www.thewoodlandstownship-tx.gov/Departments/Finance/Purchasing-Procurement/Bids";
 const AUSTIN_SOLICITATIONS_URL = "https://financeonline.austintexas.gov/afo/account_services/solicitation/solicitations.cfm";
@@ -309,6 +337,10 @@ const HANDLED_SOURCE_NAMES = new Set([
   "SAM.gov Contract Opportunities",
   "Texas Electronic State Business Daily",
   "The Woodlands Township Bids",
+  "Texas DIR Schedule of Solicitation Opportunities",
+  "BuyBoard Current Proposal Invitations",
+  "OMNIA Partners Current Solicitations",
+  "Equalis Group Current Solicitations",
   "City of Austin Purchasing",
   "City of Frisco Purchasing",
   "Bexar County Purchasing",
@@ -329,7 +361,7 @@ const HANDLED_SOURCE_NAMES = new Set([
   ...TEXAS_WORKDAY_SOURCE_BY_NAME.keys(),
   ...TEXAS_REFERENCE_SOURCE_NAMES,
 ]);
-const SERVER_BLOCKED_SOURCE_NAMES = new Set(["The Woodlands Township Bids"]);
+const SERVER_BLOCKED_SOURCE_NAMES = new Set(["The Woodlands Township Bids", "Equalis Group Current Solicitations"]);
 const PENDING_SOURCE_MESSAGES = new Map<string, string>([
   [
     "City of Houston Procurement",
@@ -354,6 +386,10 @@ const PENDING_SOURCE_MESSAGES = new Map<string, string>([
   [
     "CPS Energy Procurement and Suppliers",
     "CPS routes bid opportunities through a Supplier Management/B2GNow portal. A public listing API has not been verified yet; connect portal alerts or credentials.",
+  ],
+  [
+    "Equalis Group Current Solicitations",
+    "The current-solicitations page is public in a browser, but Cloudflare blocks Vercel/server-side fetching. Use alerts, email ingestion, or an approved browser collector before marking this source live.",
   ],
 ]);
 const SAM_SUCCESS_CACHE_MS = 15 * 60 * 1000;
@@ -564,6 +600,14 @@ export async function searchConnectedSources({ query, state, level, sources }: S
 
 function texasCustomSourceTask(sourceName: string, query: string): (() => Promise<SearchTaskResult>) | undefined {
   switch (sourceName) {
+    case "Texas DIR Schedule of Solicitation Opportunities":
+      return () => searchTexasDirSolicitationSchedule(query);
+    case "BuyBoard Current Proposal Invitations":
+      return () => searchBuyBoardProposalInvitations(query);
+    case "OMNIA Partners Current Solicitations":
+      return () => searchOmniaCurrentSolicitations(query);
+    case "Equalis Group Current Solicitations":
+      return () => searchEqualisCurrentSolicitations(query);
     case "Bexar County Purchasing":
       return () => searchBexarCountyBids(query);
     case "Midland County Purchasing":
@@ -653,11 +697,331 @@ function theWoodlandsEntryToResult(titleHtml: string, bodyHtml: string, terms: s
     deadline,
     contact,
     documents: linkText ? [linkText] : [],
+    documentLinks: linkText ? [{ label: linkText, url }] : undefined,
     submissionInstructions: "Open the Township bid document and follow the stated submission method, required forms, and closing date.",
     applicationChecklist: applicationChecklist({ hasSolicitationId: false, hasDeadline: Boolean(deadline), hasDocuments: Boolean(linkText), hasContact: Boolean(contact) }),
     summary: [description, contact ? `Contact: ${contact}.` : ""].filter(Boolean).join(" "),
     nextAction: "Open the Township bid document, confirm the submission method and due date, then route it for human review.",
   };
+}
+
+async function searchTexasDirSolicitationSchedule(query: string): Promise<SearchTaskResult> {
+  const source = "Texas DIR Schedule of Solicitation Opportunities";
+  try {
+    const response = await fetchWithTimeout(TEXAS_DIR_SOLICITATION_SCHEDULE_URL, { cache: "no-store" }, 12000);
+    if (!response.ok) {
+      return { source, results: [], error: `Texas DIR schedule returned ${response.status}` };
+    }
+
+    return { source, results: parseTexasDirSolicitationSchedule(await response.text(), query) };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+function parseTexasDirSolicitationSchedule(html: string, query: string): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+  const items = Array.from(html.matchAll(/<div[^>]*class="[^"]*\bparagraph--type--accordion-item\b[^"]*"[^>]*>[\s\S]*?<div[^>]*class="heading"[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>[\s\S]*?<div[^>]*class="accordion-body"[^>]*>([\s\S]*?)(?=<\/div>\s*<\/div>\s*<\/div>\s*<\/div>)/gi));
+
+  return items
+    .map((item, index): UnifiedSearchResult | undefined => {
+      const title = cleanText(item[1]);
+      const bodyHtml = item[2];
+      const bodyText = htmlToText(bodyHtml);
+      const phase = nearestPreviousHeading(html, item.index ?? 0) ?? "DIR solicitation schedule";
+      const solicitationId = fieldFromText(bodyText, /RFO Number:?\s*([A-Z0-9# -]+(?:SOL-\d+)?)/i);
+      const releaseDate =
+        fieldFromText(bodyText, /Tentative Solicitation Release Date:?\s*([^•]+?)(?=\s+DIR Contact:|\s+RFO Number:|\s+Procurement Type:|$)/i) ??
+        fieldFromText(bodyText, /Solicitation Release Date:?\s*([^•]+?)(?=\s+DIR Contact:|\s+RFO Number:|\s+Procurement Type:|$)/i);
+      const startDate =
+        fieldFromText(bodyText, /Start Date(?: for Planning)?:?\s*([^•]+?)(?=\s+Solicitation Release Date:|\s+Tentative Solicitation Release Date:|\s+DIR Contact:|$)/i);
+      const procurementType = fieldFromText(bodyText, /Procurement Type:?\s*([^•]+?)(?=\s+Start Date:|\s+DIR Contact:|\s+RFO Number:|$)/i);
+      const contact = fieldFromText(bodyText, /DIR Contact:?\s*([^•]+?)(?=\s+DIR Email:|\s+RFO Number:|$)/i);
+      const documentLinks = extractAnchorLinks(bodyHtml, TEXAS_DIR_SOLICITATION_SCHEDULE_URL)
+        .filter((link) => /txsmartbuy|esbd|sol|rfo/i.test(`${link.label} ${link.url}`))
+        .slice(0, 4);
+      const description = bodyText
+        .replace(/\s*(Start Date|Solicitation Release Date|Tentative Solicitation Release Date|DIR Contact|DIR Email|RFO Number|Procurement Type):[\s\S]*$/i, "")
+        .trim();
+      const haystack = [title, description, phase, solicitationId, releaseDate, procurementType, contact].filter(Boolean).join(" ").toLowerCase();
+      const score = scoreOpportunity(haystack, terms, phase.toLowerCase().includes("posting") ? 72 : 58);
+
+      if (!title || (terms.length > 0 && score <= 0)) {
+        return undefined;
+      }
+
+      const url = documentLinks[0]?.url ?? TEXAS_DIR_SOLICITATION_SCHEDULE_URL;
+      const documents = [
+        `Phase: ${phase}`,
+        procurementType ? `Procurement type: ${procurementType}` : undefined,
+        releaseDate ? `Solicitation release: ${releaseDate}` : undefined,
+      ].filter((value): value is string => Boolean(value));
+
+      return {
+        id: `texas-dir:${solicitationId ?? title}`,
+        resultType: "opportunity",
+        title,
+        buyer: "Texas Department of Information Resources",
+        sourceName: "Texas DIR Schedule of Solicitation Opportunities",
+        sourceLevel: "State",
+        sourceState: "TX",
+        sourceType: "Official DIR solicitation schedule",
+        url,
+        portalUrl: TEXAS_DIR_SOLICITATION_SCHEDULE_URL,
+        score,
+        status: phase.toLowerCase().includes("posting") ? "Posting phase / active solicitation" : `${phase} / upcoming solicitation`,
+        solicitationId,
+        postedDate: startDate,
+        deadline: releaseDate,
+        contact,
+        documents,
+        documentLinks: documentLinks.length ? documentLinks : [{ label: "DIR solicitation schedule", url: TEXAS_DIR_SOLICITATION_SCHEDULE_URL }],
+        submissionInstructions:
+          phase.toLowerCase().includes("posting")
+            ? "Open the linked DIR/ESBD posting, download all response documents and addenda, and follow the official RFO submission instructions."
+            : "This is a schedule or pre-solicitation item. Track the release date and monitor the linked ESBD/DIR posting for official response documents.",
+        applicationChecklist: applicationChecklist({
+          hasSolicitationId: Boolean(solicitationId),
+          hasDeadline: Boolean(releaseDate),
+          hasDocuments: documentLinks.length > 0,
+          hasContact: Boolean(contact),
+        }),
+        summary: [description, releaseDate ? `Release date: ${releaseDate}.` : "", contact ? `DIR contact: ${contact}.` : ""]
+          .filter(Boolean)
+          .join(" "),
+        nextAction: "Open the DIR schedule or linked ESBD posting, confirm whether it is active or upcoming, then add it to the pursuit tracker if relevant.",
+      };
+    })
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+async function searchBuyBoardProposalInvitations(query: string): Promise<SearchTaskResult> {
+  const source = "BuyBoard Current Proposal Invitations";
+  try {
+    const response = await fetchPublicPage(BUYBOARD_PROPOSAL_INVITATIONS_URL);
+    if (!response.ok) {
+      return { source, results: [], error: `BuyBoard proposal invitations returned ${response.status}` };
+    }
+
+    return { source, results: parseBuyBoardProposalInvitations(await response.text(), query) };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+function parseBuyBoardProposalInvitations(html: string, query: string): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+  const currentStart = html.search(/<h2[^>]*id=["']current-proposal-invitations["'][^>]*>/i);
+  const upcomingStart = html.search(/<h2[^>]*id=["']upcoming-proposal-invitations["'][^>]*>/i);
+  const currentSection = currentStart >= 0 ? html.slice(currentStart, upcomingStart > currentStart ? upcomingStart : undefined) : html;
+  const rows = Array.from(currentSection.matchAll(/<tr>([\s\S]*?)<\/tr>/gi));
+
+  return rows
+    .map((row, index): UnifiedSearchResult | undefined => {
+      const cells = Array.from(row[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)).map((cell) => cell[1]);
+      if (cells.length < 4 || /Proposal No/i.test(cleanText(cells[0]))) {
+        return undefined;
+      }
+
+      const proposalLinks = extractAnchorLinks(cells[0], BUYBOARD_PROPOSAL_INVITATIONS_URL);
+      const addendumLinks = extractAnchorLinks(cells[1], BUYBOARD_PROPOSAL_INVITATIONS_URL);
+      const solicitationId = cleanText(cells[0]);
+      const proposalName = cleanText(cells[2]);
+      const deadline = cleanText(cells[3]);
+      const documentLinks = [...proposalLinks, ...addendumLinks].slice(0, 8);
+      const documents = documentLinks.map((link) => link.label).filter(Boolean);
+      const title = [solicitationId, proposalName].filter(Boolean).join(": ");
+      const haystack = [title, documents.join(" "), deadline, "BuyBoard local government purchasing cooperative proposal invitation"]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      const score = scoreOpportunity(haystack, terms, 72 - Math.min(index, 30));
+
+      if (!solicitationId || !proposalName || (terms.length > 0 && score <= 0)) {
+        return undefined;
+      }
+
+      if (isPastDeadline(deadline)) {
+        return undefined;
+      }
+
+      return {
+        id: `buyboard:${solicitationId}:${proposalName}`,
+        resultType: "opportunity",
+        title,
+        buyer: "BuyBoard / Local Government Purchasing Cooperative",
+        sourceName: "BuyBoard Current Proposal Invitations",
+        sourceLevel: "Adjacent",
+        sourceState: "TX",
+        sourceType: "Public cooperative proposal invitations",
+        url: documentLinks[0]?.url ?? BUYBOARD_PROPOSAL_INVITATIONS_URL,
+        portalUrl: BUYBOARD_PROPOSAL_INVITATIONS_URL,
+        score,
+        status: "Current public proposal invitation",
+        solicitationId,
+        deadline,
+        documents,
+        documentLinks,
+        submissionInstructions:
+          "Download the BuyBoard proposal packet and all addenda, complete the required forms locally, then submit through the BuyBoard electronic proposal system before the due date.",
+        applicationChecklist: applicationChecklist({
+          hasSolicitationId: Boolean(solicitationId),
+          hasDeadline: Boolean(deadline),
+          hasDocuments: documentLinks.length > 0,
+          hasContact: false,
+        }),
+        summary: `${proposalName}. Proposal due ${deadline}.`,
+        nextAction: "Open the proposal PDF, review forms/addenda, and decide whether to add this cooperative category to the pursuit tracker.",
+      };
+    })
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+async function searchOmniaCurrentSolicitations(query: string): Promise<SearchTaskResult> {
+  const source = "OMNIA Partners Current Solicitations";
+  try {
+    const response = await fetchPublicPage(OMNIA_SOLICITATIONS_URL);
+    if (!response.ok) {
+      return { source, results: [], error: `OMNIA solicitations page returned ${response.status}` };
+    }
+
+    return { source, results: parseOmniaCurrentSolicitations(await response.text(), query) };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+function parseOmniaCurrentSolicitations(html: string, query: string): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+  const currentStart = html.search(/Current Solicitations/i);
+  const evaluationStart = html.search(/Solicitations in Evaluation/i);
+  const currentSection = currentStart >= 0 ? html.slice(currentStart, evaluationStart > currentStart ? evaluationStart : undefined) : html;
+  const blocks = currentSection
+    .split(/<div id="c\d+" class="ce\s+ce-solicitation">/i)
+    .slice(1)
+    .map((block) => block.slice(0, block.search(/<div id="c\d+" class="ce\s+(?:ce-solicitation|ce-textpic)/i) > 0 ? block.search(/<div id="c\d+" class="ce\s+(?:ce-solicitation|ce-textpic)/i) : undefined));
+
+  return blocks
+    .map((block, index): UnifiedSearchResult | undefined => {
+      const solicitationId = cleanText(block.match(/solicitation-ce__reference">([\s\S]*?)<\/div>/i)?.[1] ?? "");
+      const titleText = cleanText(block.match(/solicitation-ce__title">([\s\S]*?)<\/h3>/i)?.[1] ?? "");
+      const leadAgency = cleanText(block.match(/solicitation-ce__agency">([\s\S]*?)<\/div>/i)?.[1] ?? "");
+      const deadline = cleanText(block.match(/solicitation-ce__response-due">Response Due:\s*([\s\S]*?)<\/div>/i)?.[1] ?? "");
+      const documentLinks = dedupeDocumentLinks(extractAnchorLinks(block, OMNIA_SOLICITATIONS_URL)).slice(0, 10);
+      const documents = documentLinks.map((link) => link.label).filter(Boolean);
+      const description = htmlToText(block.match(/solicitation-ce__decription">([\s\S]*?)<\/div>/i)?.[1] ?? "");
+      const title = [solicitationId, titleText].filter(Boolean).join(": ");
+      const haystack = [title, leadAgency, deadline, description, documents.join(" "), "OMNIA Partners public sector cooperative solicitation"]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      const score = scoreOpportunity(haystack, terms, 72 - Math.min(index, 30));
+
+      if (!titleText || (terms.length > 0 && score <= 0)) {
+        return undefined;
+      }
+
+      if (isPastDeadline(deadline)) {
+        return undefined;
+      }
+
+      return {
+        id: `omnia:${solicitationId || titleText}`,
+        resultType: "opportunity",
+        title,
+        buyer: leadAgency ? `OMNIA lead agency: ${leadAgency}` : "OMNIA Partners",
+        sourceName: "OMNIA Partners Current Solicitations",
+        sourceLevel: "Adjacent",
+        sourceState: "US",
+        sourceType: "Public cooperative solicitation page",
+        url: documentLinks[0]?.url ?? OMNIA_SOLICITATIONS_URL,
+        portalUrl: OMNIA_SOLICITATIONS_URL,
+        score,
+        status: "Current public cooperative solicitation",
+        solicitationId,
+        deadline,
+        documents,
+        documentLinks,
+        submissionInstructions:
+          "Open the OMNIA lead-agency solicitation link and any addenda, then follow that lead agency portal's response instructions and deadline.",
+        applicationChecklist: applicationChecklist({
+          hasSolicitationId: Boolean(solicitationId),
+          hasDeadline: Boolean(deadline),
+          hasDocuments: documentLinks.length > 0,
+          hasContact: Boolean(leadAgency),
+        }),
+        summary: [leadAgency ? `Lead agency: ${leadAgency}.` : "", deadline ? `Response due ${deadline}.` : "", description]
+          .filter(Boolean)
+          .join(" "),
+        nextAction: "Open the lead-agency solicitation link, confirm documents and portal requirements, then add it to the tracker if the category fits.",
+      };
+    })
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+async function searchEqualisCurrentSolicitations(query: string): Promise<SearchTaskResult> {
+  const source = "Equalis Group Current Solicitations";
+  try {
+    const response = await fetchPublicPage(EQUALIS_SOLICITATIONS_URL);
+    if (!response.ok) {
+      return { source, results: [], error: `Equalis solicitations page returned ${response.status}` };
+    }
+
+    return { source, results: parseEqualisCurrentSolicitations(await response.text(), query) };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+function parseEqualisCurrentSolicitations(html: string, query: string): UnifiedSearchResult[] {
+  if (/no solicitations currently open/i.test(htmlToText(html))) {
+    return [];
+  }
+
+  const terms = conceptTerms(query);
+  const currentStart = html.search(/Current Solicitations/i);
+  const faqStart = html.search(/Commonly Asked Questions/i);
+  const currentSection = currentStart >= 0 ? html.slice(currentStart, faqStart > currentStart ? faqStart : undefined) : html;
+  const links = dedupeDocumentLinks(extractAnchorLinks(currentSection, EQUALIS_SOLICITATIONS_URL)).filter((link) =>
+    hasOpportunityLanguage(`${link.label} ${link.url}`),
+  );
+
+  return links
+    .map((link, index): UnifiedSearchResult | undefined => {
+      const haystack = [link.label, link.url, "Equalis Group lead agency solicitation cooperative public sector"].join(" ").toLowerCase();
+      const score = scoreOpportunity(haystack, terms, 58 - Math.min(index, 20));
+
+      if (terms.length > 0 && score <= 0) {
+        return undefined;
+      }
+
+      return {
+        id: `equalis:${link.url}`,
+        resultType: "opportunity",
+        title: link.label || "Equalis Group current solicitation",
+        buyer: "Equalis Group lead agency",
+        sourceName: "Equalis Group Current Solicitations",
+        sourceLevel: "Adjacent",
+        sourceState: "US",
+        sourceType: "Public cooperative solicitation page",
+        url: link.url,
+        portalUrl: EQUALIS_SOLICITATIONS_URL,
+        score,
+        status: "Current public solicitation link",
+        documents: [link.label],
+        documentLinks: [link],
+        submissionInstructions:
+          "Open the Equalis lead-agency solicitation link, download the packet and addenda, then follow the listed portal instructions.",
+        applicationChecklist: applicationChecklist({ hasSolicitationId: false, hasDeadline: false, hasDocuments: true, hasContact: false }),
+        summary: "Matching solicitation link found on the Equalis current solicitations page.",
+        nextAction: "Open the Equalis link, capture deadline and submission rules, then decide whether to pursue.",
+      };
+    })
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
 }
 
 async function searchSam(query: string): Promise<{ source: string; results: UnifiedSearchResult[]; error?: string }> {
@@ -787,6 +1151,7 @@ async function fetchSamSearch(url: string, query: string, terms: string[]): Prom
         solicitationId: solicitation,
         deadline,
         postedDate,
+        documentLinks: [{ label: "SAM.gov opportunity package", url }],
         submissionInstructions: "Open the SAM.gov opportunity package and review the solicitation attachments, response format, set-aside rules, and submission method.",
         applicationChecklist: applicationChecklist({ hasSolicitationId: Boolean(solicitation), hasDeadline: Boolean(deadline), hasDocuments: true, hasContact: Boolean(office) }),
         summary: [solicitation ? `Solicitation ${solicitation}.` : "", office ? `Office: ${office}.` : ""].filter(Boolean).join(" "),
@@ -1081,6 +1446,8 @@ function tennesseeRowToResult(
     solicitationId,
     deadline,
     postedDate,
+    documents: [`${kind} posting document`],
+    documentLinks: [{ label: `${kind} posting document`, url: documentUrl }],
     submissionInstructions: "Open the Tennessee posting document and follow the stated response instructions, required attachments, and due date.",
     applicationChecklist: applicationChecklist({ hasSolicitationId: Boolean(solicitationId), hasDeadline: Boolean(deadline), hasDocuments: true, hasContact: false }),
     summary: [solicitationId ? `Solicitation ${solicitationId}.` : "", postedDate ? `Posted ${postedDate}.` : ""].filter(Boolean).join(" "),
@@ -1133,6 +1500,7 @@ function texasRowToResult(row: string, terms: string[], index: number): UnifiedS
     solicitationId,
     deadline,
     postedDate: labels["Posting Date"],
+    documentLinks: [{ label: "ESBD posting and solicitation packet", url: new URL(href, TEXAS_ESBD_URL).toString() }],
     submissionInstructions: "Open the ESBD posting, download every solicitation/addendum file, confirm vendor-registration requirements, and follow the buyer's stated submission rules.",
     applicationChecklist: applicationChecklist({ hasSolicitationId: Boolean(solicitationId), hasDeadline: Boolean(deadline), hasDocuments: true, hasContact: Boolean(buyer) }),
     summary: [solicitationId ? `Solicitation ${solicitationId}.` : "", labels["Posting Date"] ? `Posted ${labels["Posting Date"]}.` : ""]
@@ -1164,7 +1532,7 @@ function texasEsbdLineToResult(
     return undefined;
   }
 
-  const url = line.url || line.repostURL || (solicitationId ? `/esbd/${encodeURIComponent(solicitationId)}` : TEXAS_ESBD_URL);
+  const url = new URL(line.url || line.repostURL || (solicitationId ? `/esbd/${encodeURIComponent(solicitationId)}` : TEXAS_ESBD_URL), TEXAS_ESBD_URL).toString();
 
   return {
     id: `tx-esbd:${solicitationId ?? line.internalid ?? index}:${title}`,
@@ -1175,7 +1543,7 @@ function texasEsbdLineToResult(
     sourceLevel: "State",
     sourceState: "TX",
     sourceType: "Official ESBD service",
-    url: new URL(url, TEXAS_ESBD_URL).toString(),
+    url,
     portalUrl: TEXAS_ESBD_URL,
     score,
     status,
@@ -1183,6 +1551,7 @@ function texasEsbdLineToResult(
     deadline,
     postedDate: line.postingDate,
     documents: line.nigpCodes ? [`NIGP: ${line.nigpCodes}`] : [],
+    documentLinks: [{ label: "ESBD posting and solicitation packet", url }],
     submissionInstructions: "Open the ESBD posting, download every solicitation/addendum file, confirm vendor-registration requirements, and follow the buyer's stated submission rules.",
     applicationChecklist: applicationChecklist({ hasSolicitationId: Boolean(solicitationId), hasDeadline: Boolean(deadline), hasDocuments: true, hasContact: Boolean(buyer) }),
     summary: [
@@ -1492,6 +1861,8 @@ function ionWaveRowToResult(rowHtml: string, terms: string[], index: number, sou
     solicitationId,
     deadline,
     postedDate,
+    documents: ["Public bid table row; packet access may require IonWave registration."],
+    documentLinks: [{ label: "IonWave current bid table", url: source.currentBidsUrl }],
     submissionInstructions:
       "Open the IonWave current-bids table, register or sign in if required, download the bid packet and addenda, then submit through IonWave before the close date.",
     applicationChecklist: applicationChecklist({ hasSolicitationId: true, hasDeadline: Boolean(deadline), hasDocuments: false, hasContact: false }),
@@ -1548,6 +1919,7 @@ function bonfireProjectToResult(
     status: "Open public opportunity",
     solicitationId,
     deadline,
+    documentLinks: [{ label: "Bonfire opportunity detail and files", url: projectUrl }],
     submissionInstructions: "Open the Bonfire opportunity, log in or register if required, review all project files and addenda, then submit through Bonfire before the close date.",
     applicationChecklist: applicationChecklist({ hasSolicitationId: Boolean(solicitationId), hasDeadline: Boolean(deadline), hasDocuments: true, hasContact: false }),
     summary: [solicitationId ? `Reference ${solicitationId}.` : "", deadline ? `Closes ${deadline}.` : ""].filter(Boolean).join(" "),
@@ -1588,7 +1960,8 @@ async function searchOpenGov(query: string, source: OpenGovSource): Promise<Sear
 }
 
 async function fetchOpenGovProjects(source: OpenGovSource): Promise<OpenGovProject[]> {
-  const url = `https://procurement.opengov.com/portal/embed/${source.portalCode}/project-list?departmentId=all&status=open`;
+  const departmentId = source.departmentId ?? "all";
+  const url = `https://procurement.opengov.com/portal/embed/${source.portalCode}/project-list?departmentId=${encodeURIComponent(departmentId)}&status=open`;
   const response = await fetchWithTimeout(
     url,
     {
@@ -1673,7 +2046,8 @@ function openGovProjectToResult(
     department ? `Department: ${department}` : undefined,
     project.addendums?.length ? `${project.addendums.length} addendum/addenda posted` : undefined,
   ].filter((item): item is string => Boolean(item));
-  const projectUrl = project.id ? `${source.portalUrl}/projects/${project.id}` : source.portalUrl;
+  const portalBaseUrl = source.portalUrl.replace(/[?#].*$/, "").replace(/\/$/, "");
+  const projectUrl = project.id ? `${portalBaseUrl}/projects/${project.id}` : source.portalUrl;
 
   return {
     id: `opengov:${source.sourceName}:${project.id ?? solicitationId ?? title}`,
@@ -1693,6 +2067,7 @@ function openGovProjectToResult(
     postedDate,
     contact: project.government?.organization?.phone,
     documents,
+    documentLinks: [{ label: "OpenGov project detail and documents", url: projectUrl }],
     submissionInstructions:
       "Open the OpenGov posting, create or sign in to the vendor account if required, download the solicitation documents and addenda, then submit through OpenGov before the close date.",
     applicationChecklist: applicationChecklist({
@@ -1894,12 +2269,19 @@ function workdayEventToResult(
   }
 
   const detailUrl = event.id ? new URL(`/bid-details/${event.id}`, source.portalUrl).toString() : source.portalUrl;
+  const bidUrl = event.bidUrl ? safeAbsoluteUrl(event.bidUrl, source.portalUrl) ?? event.bidUrl : undefined;
   const documents = [
     requestType ? `Request type: ${requestType}` : undefined,
     event.projectId ? `Project ID: ${event.projectId}` : undefined,
     ...commodityCodes.slice(0, 8),
-    event.bidUrl ? `Workday public bid URL: ${event.bidUrl}` : undefined,
+    bidUrl ? `Workday public bid URL: ${bidUrl}` : undefined,
   ].filter((item): item is string => Boolean(item));
+  const documentLinks = dedupeDocumentLinks(
+    [
+      { label: "Workday public bid detail", url: detailUrl },
+      bidUrl ? { label: "Workday public bid package", url: bidUrl } : undefined,
+    ].filter((link): link is OpportunityDocumentLink => Boolean(link)),
+  );
 
   return {
     id: `workday:${source.sourceName}:${event.id ?? title}`,
@@ -1918,6 +2300,7 @@ function workdayEventToResult(
     deadline,
     postedDate,
     documents,
+    documentLinks,
     submissionInstructions:
       "Open the Workday public bid detail, register or sign in if required, download the solicitation documents and addenda, then submit through Workday before the deadline.",
     applicationChecklist: applicationChecklist({
@@ -2266,6 +2649,7 @@ function parseMidlandCountyRfps(html: string, query: string): UnifiedSearchResul
         status: "Current RFP document posted",
         solicitationId,
         documents,
+        documentLinks: links.slice(0, 8),
         submissionInstructions: "Open the Midland County RFP documents, download the main packet and addenda, then follow the instructions and deadline stated in the PDF.",
         applicationChecklist: applicationChecklist({ hasSolicitationId: Boolean(solicitationId), hasDeadline: false, hasDocuments: documents.length > 0, hasContact: false }),
         summary: `${documents.length} current document${documents.length === 1 ? "" : "s"} listed on Midland County's official RFP page.`,
@@ -2309,10 +2693,14 @@ function parseHoustonAirportSolicitations(html: string, query: string): UnifiedS
     const contactPhone = jsonishString(window, "contactPhone");
     const projectDescription = jsonishString(window, "projectDescription");
     const budget = jsonishString(window, "contractAmount")?.replace(/^\$\$/, "$");
-    const documents = Array.from(window.matchAll(/"fields":\{"title":"((?:\\.|[^"\\])*)"/g))
-      .map((documentMatch) => decodeJsonishString(documentMatch[1]))
-      .filter((documentTitle) => documentTitle && documentTitle !== title)
+    const documentLinks = Array.from(window.matchAll(/"fields":\{"title":"((?:\\.|[^"\\])*)"[\s\S]*?"file":\{"url":"((?:\\.|[^"\\])*)"/g))
+      .map((documentMatch) => ({
+        label: decodeJsonishString(documentMatch[1]),
+        url: normalizeDocumentUrl(decodeJsonishString(documentMatch[2])),
+      }))
+      .filter((link): link is OpportunityDocumentLink => Boolean(link.label && link.url && link.label !== title))
       .slice(0, 8);
+    const documents = documentLinks.map((link) => link.label);
     const key = solicitationId ?? title;
 
     if (!key || seen.has(key) || !title || status.toLowerCase() !== "open") {
@@ -2351,6 +2739,7 @@ function parseHoustonAirportSolicitations(html: string, query: string): UnifiedS
       budget,
       contact: [contactName, contactEmail, contactPhone].filter(Boolean).join(" / "),
       documents,
+      documentLinks,
       submissionInstructions: "Open the Houston Airport solicitation page, download all bid documents and addenda, then follow the listed submission and question instructions.",
       applicationChecklist: applicationChecklist({
         hasSolicitationId: Boolean(solicitationId),
@@ -2975,6 +3364,7 @@ function extractOpportunityLinks(html: string, query: string, source: Procuremen
 }
 
 function enrichSearchResult(result: UnifiedSearchResult, query: string): UnifiedSearchResult {
+  const documentLinks = result.documentLinks?.length ? result.documentLinks : [{ label: "Posting/detail page", url: result.url }];
   const haystack = [
     result.title,
     result.summary,
@@ -2985,6 +3375,7 @@ function enrichSearchResult(result: UnifiedSearchResult, query: string): Unified
     result.status,
     result.solicitationId,
     result.documents?.join(" "),
+    documentLinks.map((link) => link.label).join(" "),
   ]
     .filter(Boolean)
     .join(" ")
@@ -3030,9 +3421,9 @@ function enrichSearchResult(result: UnifiedSearchResult, query: string): Unified
     riskFlags.push("Reference ID was not captured.");
   }
 
-  if (result.documents?.length) {
+  if (result.documents?.length || documentLinks.length) {
     fitScore += 6;
-    fitReasons.push("Document or classification data was captured.");
+    fitReasons.push(result.documentLinks?.length ? "Direct document/detail link was captured." : "Official posting link was captured.");
   } else {
     riskFlags.push("No document list was captured.");
   }
@@ -3055,6 +3446,7 @@ function enrichSearchResult(result: UnifiedSearchResult, query: string): Unified
 
   return {
     ...result,
+    documentLinks,
     score: Math.max(1, Math.min(100, Math.round(fitScore))),
     fitReasons: fitReasons.slice(0, 5),
     riskFlags: riskFlags.slice(0, 5),
@@ -3083,7 +3475,7 @@ function sourceStatusFromTaskResult(result: SearchTaskResult): SourceSearchStatu
 }
 
 function isPendingConnectorIssue(error: string) {
-  return /rate limited|timed out|not completed/i.test(error);
+  return /rate limited|returned 429|timed out|not completed/i.test(error);
 }
 
 function pendingSourceMessage(sourceName: string) {
@@ -3105,6 +3497,10 @@ function pendingSourceMessage(sourceName: string) {
 
 function connectorMessage(error: string) {
   if (/rate limited/i.test(error)) {
+    return "Rate limited by the source; cached cooldown is active.";
+  }
+
+  if (/returned 429/i.test(error)) {
     return "Rate limited by the source; cached cooldown is active.";
   }
 
@@ -3190,7 +3586,7 @@ function resultRankScore(result: UnifiedSearchResult) {
     result.score +
     (result.deadline ? 8 : 0) +
     (result.solicitationId ? 6 : 0) +
-    (result.documents?.length ? 5 : 0) +
+    (result.documents?.length || result.documentLinks?.length ? 5 : 0) +
     (result.contact ? 4 : 0) +
     (result.budget ? 4 : 0) +
     (result.summary.length > 80 ? 3 : 0)
@@ -3593,12 +3989,63 @@ function hasOpportunityLanguage(value: string) {
   return /\b(bid|bids|rfp|rfq|rfi|itb|solicitation|solicitations)\b/i.test(value);
 }
 
+function nearestPreviousHeading(html: string, index: number) {
+  const headings = Array.from(html.slice(0, index).matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/gi));
+  const lastHeading = headings.at(-1);
+  return lastHeading ? cleanText(lastHeading[1]) : undefined;
+}
+
+function fieldFromText(text: string, pattern: RegExp) {
+  const value = text.match(pattern)?.[1];
+  return value ? cleanText(value.replace(/\s+/g, " ").replace(/[.;]\s*$/, "")) : undefined;
+}
+
+function extractAnchorLinks(html: string, baseUrl: string): OpportunityDocumentLink[] {
+  return Array.from(html.matchAll(/<a\b[^>]*href=(["'])(.*?)\1[^>]*>([\s\S]*?)<\/a>/gi))
+    .map((anchor) => {
+      const href = decodeHtml(anchor[2]).trim();
+      if (!href || href.startsWith("#") || href.startsWith("mailto:") || href.startsWith("tel:") || href.startsWith("javascript:")) {
+        return undefined;
+      }
+
+      const url = safeAbsoluteUrl(href, baseUrl);
+      const label = cleanText(anchor[3]) || url;
+      return url && label ? { label, url } : undefined;
+    })
+    .filter((link): link is OpportunityDocumentLink => Boolean(link));
+}
+
+function dedupeDocumentLinks(links: OpportunityDocumentLink[]) {
+  const seen = new Set<string>();
+  return links.filter((link) => {
+    const key = `${link.label}:${link.url}`;
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
 function safeAbsoluteUrl(href: string, baseUrl: string) {
   try {
     return new URL(href, baseUrl).toString();
   } catch {
     return undefined;
   }
+}
+
+function normalizeDocumentUrl(url?: string) {
+  if (!url) {
+    return "";
+  }
+
+  if (url.startsWith("//")) {
+    return `https:${url}`;
+  }
+
+  return url;
 }
 
 function safeOrigin(url: string) {

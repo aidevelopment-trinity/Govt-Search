@@ -504,6 +504,7 @@ function ResultRow({ result, onSaved }: { result: UnifiedSearchResult; onSaved: 
   const [trackStatus, setTrackStatus] = useState<"idle" | "saving" | "saved" | "error" | "not-configured">("idle");
   const checklist = result.applicationChecklist?.length ? result.applicationChecklist : fallbackChecklist(result);
   const documents = result.documents?.filter(Boolean) ?? [];
+  const documentLinks = result.documentLinks?.filter((link) => link.label && link.url) ?? [];
 
   async function trackResult() {
     setTrackStatus("saving");
@@ -569,6 +570,17 @@ function ResultRow({ result, onSaved }: { result: UnifiedSearchResult; onSaved: 
             <Link2 className="size-4" />
             <span>Portal</span>
           </a>
+          {documentLinks[0] ? (
+            <a
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              href={documentLinks[0].url}
+              rel="noreferrer"
+              target="_blank"
+            >
+              <FileText className="size-4" />
+              <span>Docs</span>
+            </a>
+          ) : null}
           <a
             className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-ink px-3 text-sm font-medium text-white hover:bg-slate-800"
             href={result.url}
@@ -605,8 +617,21 @@ function ResultRow({ result, onSaved }: { result: UnifiedSearchResult; onSaved: 
                 <FileText className="size-4 text-signal" />
                 <span>Documents / Data Captured</span>
               </div>
-              {documents.length > 0 ? (
+              {documentLinks.length > 0 || documents.length > 0 ? (
                 <ul className="space-y-1 text-sm text-slate-700">
+                  {documentLinks.slice(0, 6).map((document) => (
+                    <li key={`${document.label}:${document.url}`} className="rounded-md border border-line bg-slate-50 px-2 py-1">
+                      <a
+                        className="inline-flex items-center gap-2 font-medium text-signal hover:text-teal-900"
+                        href={document.url}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        <ExternalLink className="size-3.5" />
+                        <span>{document.label}</span>
+                      </a>
+                    </li>
+                  ))}
                   {documents.slice(0, 6).map((document) => (
                     <li key={document} className="rounded-md border border-line bg-slate-50 px-2 py-1">
                       {document}
