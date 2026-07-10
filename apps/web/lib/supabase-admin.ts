@@ -79,14 +79,19 @@ async function supabaseRequest<T>(path: string, options: { method?: string; body
   }
 
   const endpoint = `${config.url}/rest/v1/${path}${options.query ?? ""}`;
+  const headers: Record<string, string> = {
+    apikey: config.serviceRoleKey,
+    "Content-Type": "application/json",
+    Prefer: "return=representation,resolution=merge-duplicates",
+  };
+
+  if (!isNewSupabaseApiKey(config.serviceRoleKey)) {
+    headers.Authorization = `Bearer ${config.serviceRoleKey}`;
+  }
+
   const response = await fetch(endpoint, {
     method: options.method ?? "GET",
-    headers: {
-      apikey: config.serviceRoleKey,
-      Authorization: `Bearer ${config.serviceRoleKey}`,
-      "Content-Type": "application/json",
-      Prefer: "return=representation,resolution=merge-duplicates",
-    },
+    headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
 
@@ -101,6 +106,10 @@ async function supabaseRequest<T>(path: string, options: { method?: string; body
 
   const data = (await response.json().catch(() => null)) as T;
   return { ok: true, configured: true, data };
+}
+
+function isNewSupabaseApiKey(value: string) {
+  return value.startsWith("sb_secret_") || value.startsWith("sb_publishable_");
 }
 
 export async function saveSearch(input: SavedSearchInput) {
