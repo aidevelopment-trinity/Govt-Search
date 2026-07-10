@@ -4,8 +4,9 @@ Generated from the production search for `leadership training` across all states
 
 ## Summary
 
-- Latest local verification for `leadership training`: 95 searched, 82 results, 28 directory-pending, 0 hard errors.
-- Source health currently shows 88 `ok` rows and 35 `pending` rows because temporary rate limits/timeouts are included in health.
+- Latest local verification for `leadership training`: 102 searched, 99 raw results, 21 directory-pending, 0 hard errors.
+- Default Focused quality view shows 3 higher-quality matches for `leadership training`; the other raw results are weak matches hidden unless Broad is selected.
+- Source health currently shows 95 `ok` rows and 28 `pending` rows because temporary rate limits/timeouts are included in health.
 - Reference-only/vendor setup/award-history pages are no longer counted as broken live-opportunity connectors.
 - Production needs a fresh Vercel deployment after this checklist update is pushed.
 
@@ -60,7 +61,13 @@ Generated from the production search for `leadership training` across all states
    - Sources added: City of Aurora, City of Colorado Springs, City of Fort Collins, Denver Public Schools, Douglas County CO, RTD, University of Colorado, Fulton County, and City of Tampa.
    - Platforms: BidNet Direct / Rocky Mountain E-Purchasing, OpenGov.
    - Verification examples: Aurora `firing range`, DPS `custodial services`, CU `billing tool`, Fulton `disaster bags`, Tampa `services`, RTD `leadership training`.
-11. Static official-page batch
+11. Public connector batch 2
+   - Status: Wired and locally verified.
+   - Sources added: City of Charlotte, Cobb County, City of Orlando, Orange County FL, Hillsborough County, Miami-Dade County, and Gwinnett County.
+   - Platforms/endpoints: Bonfire, OpenGov embed feeds, DemandStar agency feed, Miami-Dade JSON feeds, and Gwinnett official solicitations page.
+   - Verification examples: Charlotte `charlotte` returned 44 Bonfire rows with document links; Cobb `cobb` returned 9 OpenGov rows; Orlando `orlando` returned 10 OpenGov rows; Orange County `orange` returned 10 OpenGov rows; Miami-Dade `miami` returned 34 current/future rows; Gwinnett `gwinnett` returned 18 rows with notice/addendum links.
+   - Hillsborough note: DemandStar feed is reachable and status is `ok`, but the public feed currently contains no future/open rows after deadline filtering; latest 100 rows are under evaluation or past due.
+12. Static official-page batch
    - Status: Wired and locally verified.
    - Sources added: CDOT future bidding, Shelby County bids listing, Tennessee Board of Regents procurement opportunities, University of Florida bid schedule.
    - Note: these may correctly return zero results when the public page has no matching/open posting.
@@ -70,31 +77,24 @@ Generated from the production search for `leadership training` across all states
 1. Capital Area Council of Governments Procurement
 2. City of Allen Purchasing
 3. City of Atlanta Procurement
-4. City of Charlotte Procurement
-5. City of Houston Procurement
-6. City of Memphis Purchasing
-7. City of Orlando Procurement and Contracts
-8. City of Raleigh Current Bidding Opportunities
-9. Cobb County Purchasing
-10. Colorado Department of Human Services Procurement
-11. Colorado State University Procurement Services
-12. Colorado Vendor Self Service
-13. Colorado VSS Published Solicitations
-14. CPS Energy Procurement and Suppliers
-15. Denver International Airport Business Opportunities
-16. Equalis Group Current Solicitations
-17. Georgia Procurement Registry
-18. GSA Forecast of Contracting Opportunities
-19. Gwinnett County Purchasing
-20. Hillsborough County Procurement
-21. Mecklenburg County Vendor Opportunities
-22. Metro Nashville Procurement
-23. Miami-Dade County Procurement
-24. North Carolina eVP Solicitations
-25. Orange County Florida OrangeBids
-26. Palm Beach County Purchasing
-27. The Woodlands Township Bids
-28. Wake County Procurement Services
+4. City of Houston Procurement
+5. City of Memphis Purchasing
+6. City of Raleigh Current Bidding Opportunities
+7. Colorado Department of Human Services Procurement
+8. Colorado State University Procurement Services
+9. Colorado Vendor Self Service
+10. Colorado VSS Published Solicitations
+11. CPS Energy Procurement and Suppliers
+12. Denver International Airport Business Opportunities
+13. Equalis Group Current Solicitations
+14. Georgia Procurement Registry
+15. GSA Forecast of Contracting Opportunities
+16. Mecklenburg County Vendor Opportunities
+17. Metro Nashville Procurement
+18. North Carolina eVP Solicitations
+19. Palm Beach County Purchasing
+20. The Woodlands Township Bids
+21. Wake County Procurement Services
 
 ## Wired But Temporarily Rate-Limited
 

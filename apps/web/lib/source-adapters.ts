@@ -95,6 +95,14 @@ type OpenGovSource = {
   state?: string;
   departmentId?: string;
 };
+type DemandStarSource = {
+  sourceName: string;
+  buyer: string;
+  agencyGuid: string;
+  portalUrl: string;
+  level: string;
+  state: string;
+};
 type WorkdaySource = {
   sourceName: string;
   buyer: string;
@@ -198,6 +206,13 @@ const TEXAS_BONFIRE_SOURCES: BonfireSource[] = [
     portalUrl: "https://broward.bonfirehub.com/portal",
     level: "Local",
     state: "FL",
+  },
+  {
+    sourceName: "City of Charlotte Procurement",
+    buyer: "City of Charlotte",
+    portalUrl: "https://charlottenc.bonfirehub.com/portal/?tab=openOpportunities",
+    level: "Local",
+    state: "NC",
   },
 ];
 const TEXAS_BONFIRE_SOURCE_BY_NAME = new Map(TEXAS_BONFIRE_SOURCES.map((source) => [source.sourceName, source]));
@@ -320,8 +335,44 @@ const OPENGOV_SOURCES: OpenGovSource[] = [
     level: "Adjacent",
     state: "CO",
   },
+  {
+    sourceName: "Cobb County Purchasing",
+    buyer: "Cobb County",
+    portalCode: "cobbcoga",
+    portalUrl: "https://procurement.opengov.com/portal/cobbcoga",
+    level: "Local",
+    state: "GA",
+  },
+  {
+    sourceName: "City of Orlando Procurement and Contracts",
+    buyer: "City of Orlando",
+    portalCode: "orlando",
+    portalUrl: "https://procurement.opengov.com/portal/orlando",
+    level: "Local",
+    state: "FL",
+  },
+  {
+    sourceName: "Orange County Florida OrangeBids",
+    buyer: "Orange County, Florida",
+    portalCode: "orangecountyfl",
+    portalUrl: "https://procurement.opengov.com/portal/orangecountyfl",
+    level: "Local",
+    state: "FL",
+  },
 ];
 const OPENGOV_SOURCE_BY_NAME = new Map(OPENGOV_SOURCES.map((source) => [source.sourceName, source]));
+const DEMANDSTAR_SOURCES: DemandStarSource[] = [
+  {
+    sourceName: "Hillsborough County Procurement",
+    buyer: "Hillsborough County Board of County Commissioners",
+    agencyGuid: "f99704d5-ff5e-4cee-84da-d74d8a525324",
+    portalUrl:
+      "https://www.demandstar.com/app/agencies/florida/hillsborough-county-bocc/procurement-opportunities/f99704d5-ff5e-4cee-84da-d74d8a525324/",
+    level: "Local",
+    state: "FL",
+  },
+];
+const DEMANDSTAR_SOURCE_BY_NAME = new Map(DEMANDSTAR_SOURCES.map((source) => [source.sourceName, source]));
 const TEXAS_WORKDAY_SOURCES: WorkdaySource[] = [
   {
     sourceName: "Dallas College Supplier Information",
@@ -392,6 +443,13 @@ const ADDISON_BIDNET_OPEN_BIDS_URL =
 const FULTON_COUNTY_BIDNET_PORTAL_URL = "https://www.bidnetdirect.com/georgia/fultoncounty";
 const FULTON_COUNTY_BIDNET_OPEN_BIDS_URL =
   "https://www.bidnetdirect.com/georgia/fultoncounty/solicitations/open-bids?selectedContent=BUYER";
+const MIAMI_DADE_CURRENT_SOLICITATIONS_URL = "https://www.miamidade.gov/apps/isd/StratProc/Home/CurrentSolicitations";
+const MIAMI_DADE_CURRENT_SOLICITATIONS_API_URL = "https://www.miamidade.gov/apps/isd/StratProc/Home/CurrentSolicitationsList";
+const MIAMI_DADE_FUTURE_SOLICITATIONS_URL = "https://www.miamidade.gov/apps/isd/StratProc/Home/FutureSolicitations";
+const MIAMI_DADE_FUTURE_SOLICITATIONS_API_URL = "https://www.miamidade.gov/apps/isd/StratProc/Home/FutureSolicitationsList";
+const MIAMI_DADE_FUTURE_SOLICITATION_DOC_BASE_URL = "https://www.miamidade.gov/Apps/ISD/StratProc/ProcurementNAS/pdf_Files/FutureSolicitations/";
+const GWINNETT_COUNTY_SOLICITATIONS_URL = "https://www.gwinnettcounty.com/government/departments/financial-services/purchasing/solicitations";
+const DEMANDSTAR_API_BASE_URL = "https://api.demandstar.com";
 const HANDLED_SOURCE_NAMES = new Set([
   "SAM.gov Contract Opportunities",
   "Texas Electronic State Business Daily",
@@ -421,6 +479,7 @@ const HANDLED_SOURCE_NAMES = new Set([
   ...TEXAS_BONFIRE_SOURCE_BY_NAME.keys(),
   ...TEXAS_IONWAVE_SOURCE_BY_NAME.keys(),
   ...OPENGOV_SOURCE_BY_NAME.keys(),
+  ...DEMANDSTAR_SOURCE_BY_NAME.keys(),
   ...TEXAS_WORKDAY_SOURCE_BY_NAME.keys(),
   ...TEXAS_REFERENCE_SOURCE_NAMES,
 ]);
@@ -502,6 +561,9 @@ const IONWAVE_FETCH_TIMEOUT_MS = 12000;
 const OPENGOV_SUCCESS_CACHE_MS = 10 * 60 * 1000;
 const OPENGOV_ERROR_CACHE_MS = 2 * 60 * 1000;
 const OPENGOV_FETCH_TIMEOUT_MS = 12000;
+const DEMANDSTAR_SUCCESS_CACHE_MS = 10 * 60 * 1000;
+const DEMANDSTAR_ERROR_CACHE_MS = 2 * 60 * 1000;
+const DEMANDSTAR_FETCH_TIMEOUT_MS = 12000;
 const WORKDAY_SUCCESS_CACHE_MS = 10 * 60 * 1000;
 const WORKDAY_ERROR_CACHE_MS = 2 * 60 * 1000;
 const WORKDAY_FETCH_TIMEOUT_MS = 12000;
@@ -523,6 +585,8 @@ const ionWaveInFlight = getGlobalMap<Promise<ConnectorSearchResult>>("__govContr
 const ionWavePageCache = getGlobalMap<{ expiresAt: number; html: string }>("__govContractFinderIonWavePageCache");
 const openGovCache = getGlobalMap<{ expiresAt: number; value: ConnectorSearchResult }>("__govContractFinderOpenGovCache");
 const openGovInFlight = getGlobalMap<Promise<ConnectorSearchResult>>("__govContractFinderOpenGovInFlight");
+const demandStarCache = getGlobalMap<{ expiresAt: number; value: ConnectorSearchResult }>("__govContractFinderDemandStarCache");
+const demandStarInFlight = getGlobalMap<Promise<ConnectorSearchResult>>("__govContractFinderDemandStarInFlight");
 const workdayCache = getGlobalMap<{ expiresAt: number; value: ConnectorSearchResult }>("__govContractFinderWorkdayCache");
 const workdayInFlight = getGlobalMap<Promise<ConnectorSearchResult>>("__govContractFinderWorkdayInFlight");
 
@@ -620,6 +684,14 @@ export async function searchConnectedSources({ query, state, level, sources }: S
         searchedSources.push(openGovSource.sourceName);
         removePending(pendingSources, openGovSource.sourceName);
         tasks.push({ source: openGovSource.sourceName, run: () => searchOpenGov(query, openGovSource) });
+        continue;
+      }
+
+      const demandStarSource = DEMANDSTAR_SOURCE_BY_NAME.get(source.source_name);
+      if (demandStarSource) {
+        searchedSources.push(demandStarSource.sourceName);
+        removePending(pendingSources, demandStarSource.sourceName);
+        tasks.push({ source: demandStarSource.sourceName, run: () => searchDemandStar(query, demandStarSource) });
         continue;
       }
 
@@ -755,6 +827,10 @@ function texasCustomSourceTask(sourceName: string, query: string): (() => Promis
       return () => searchAddisonPurchasing(query);
     case "Fulton County Bid Opportunities":
       return () => searchFultonCountyBidOpportunities(query);
+    case "Miami-Dade County Procurement":
+      return () => searchMiamiDadeProcurement(query);
+    case "Gwinnett County Purchasing":
+      return () => searchGwinnettCountyPurchasing(query);
     default:
       return undefined;
   }
@@ -1120,6 +1196,297 @@ function searchFultonCountyBidOpportunities(query: string): Promise<SearchTaskRe
     submissionInstructions:
       "Open the BidNet Direct posting, download the solicitation packet and addenda, confirm registration/submission requirements, and submit through BidNet Direct/Georgia Purchasing Group before the closing date.",
   });
+}
+
+async function searchMiamiDadeProcurement(query: string): Promise<SearchTaskResult> {
+  const source = "Miami-Dade County Procurement";
+
+  try {
+    const [currentResult, futureResult] = await Promise.allSettled([
+      fetchMiamiDadeCurrentSolicitations(),
+      fetchMiamiDadeFutureSolicitations(),
+    ]);
+    const currentRows = currentResult.status === "fulfilled" ? currentResult.value : [];
+    const futureRows = futureResult.status === "fulfilled" ? futureResult.value : [];
+
+    if (currentResult.status === "rejected" && futureResult.status === "rejected") {
+      return {
+        source,
+        results: [],
+        error: `Miami-Dade current and future solicitation feeds failed: ${errorMessage(currentResult.reason)}; ${errorMessage(futureResult.reason)}`,
+      };
+    }
+
+    return {
+      source,
+      results: [
+        ...parseMiamiDadeCurrentSolicitations(currentRows, query),
+        ...parseMiamiDadeFutureSolicitations(futureRows, query),
+      ].sort((a, b) => b.score - a.score || a.title.localeCompare(b.title)),
+    };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+async function fetchMiamiDadeCurrentSolicitations() {
+  return fetchMiamiDadeJson<MiamiDadeCurrentSolicitation[]>(
+    MIAMI_DADE_CURRENT_SOLICITATIONS_API_URL,
+    MIAMI_DADE_CURRENT_SOLICITATIONS_URL,
+  );
+}
+
+async function fetchMiamiDadeFutureSolicitations() {
+  return fetchMiamiDadeJson<MiamiDadeFutureSolicitation[]>(MIAMI_DADE_FUTURE_SOLICITATIONS_API_URL, MIAMI_DADE_FUTURE_SOLICITATIONS_URL);
+}
+
+async function fetchMiamiDadeJson<T>(url: string, referer: string): Promise<T> {
+  const response = await fetchWithTimeout(
+    url,
+    {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 GovContractFinder/0.1",
+        Accept: "application/json, text/javascript, */*; q=0.01",
+        Referer: referer,
+        "X-Requested-With": "XMLHttpRequest",
+      },
+      cache: "no-store",
+    },
+    12000,
+  );
+
+  if (!response.ok) {
+    throw new Error(`Miami-Dade feed returned ${response.status}`);
+  }
+
+  return (await response.json()) as T;
+}
+
+function parseMiamiDadeCurrentSolicitations(rows: MiamiDadeCurrentSolicitation[], query: string): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+
+  return rows
+    .map((row, index) => miamiDadeCurrentSolicitationToResult(row, terms, index))
+    .filter((result): result is UnifiedSearchResult => Boolean(result));
+}
+
+function miamiDadeCurrentSolicitationToResult(
+  row: MiamiDadeCurrentSolicitation,
+  terms: string[],
+  index: number,
+): UnifiedSearchResult | undefined {
+  const title = row.title?.trim();
+  const solicitationId = row.solicitationNumber?.trim();
+  const solicitationType = row.solicitationType?.trim();
+  const deadline = row.openingDate?.trim();
+  const postedDate = row.postedDate?.trim();
+  const haystack = [title, solicitationId, solicitationType, "Miami-Dade County construction bids contracts solicitation"]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const score = scoreOpportunity(haystack, terms, 75 - Math.min(index, 35));
+
+  if (!title || (terms.length > 0 && score <= 0)) {
+    return undefined;
+  }
+
+  if (isPastDeadline(deadline)) {
+    return undefined;
+  }
+
+  const url = solicitationId
+    ? `${MIAMI_DADE_CURRENT_SOLICITATIONS_URL.replace(/CurrentSolicitations$/, "SolicitationDetails")}?solNumber=${encodeURIComponent(solicitationId)}`
+    : MIAMI_DADE_CURRENT_SOLICITATIONS_URL;
+  const documents = [
+    solicitationType ? `Solicitation type: ${solicitationType}` : undefined,
+    postedDate ? `Posted: ${postedDate}` : undefined,
+  ].filter((value): value is string => Boolean(value));
+
+  return {
+    id: `miami-dade:current:${solicitationId ?? title}`,
+    resultType: "opportunity",
+    title,
+    buyer: "Miami-Dade County",
+    sourceName: "Miami-Dade County Procurement",
+    sourceLevel: "Local",
+    sourceState: "FL",
+    sourceType: "Miami-Dade public solicitations JSON feed",
+    url,
+    portalUrl: MIAMI_DADE_CURRENT_SOLICITATIONS_URL,
+    score,
+    status: "Open public solicitation",
+    solicitationId,
+    postedDate,
+    deadline,
+    documents,
+    documentLinks: [{ label: "Miami-Dade solicitation detail", url }],
+    submissionInstructions:
+      "Open the Miami-Dade solicitation detail page, download the official documents and addenda, confirm registration and submission requirements, and submit before the opening date.",
+    applicationChecklist: applicationChecklist({
+      hasSolicitationId: Boolean(solicitationId),
+      hasDeadline: Boolean(deadline),
+      hasDocuments: true,
+      hasContact: false,
+    }),
+    summary: [solicitationId ? `Solicitation ${solicitationId}.` : "", postedDate ? `Posted ${postedDate}.` : "", deadline ? `Opens ${deadline}.` : ""]
+      .filter(Boolean)
+      .join(" "),
+    nextAction: "Open the Miami-Dade detail page, download the official solicitation packet and addenda, then decide whether to save it for drafting.",
+  };
+}
+
+function parseMiamiDadeFutureSolicitations(rows: MiamiDadeFutureSolicitation[], query: string): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+
+  return rows
+    .map((row, index) => miamiDadeFutureSolicitationToResult(row, terms, index))
+    .filter((result): result is UnifiedSearchResult => Boolean(result));
+}
+
+function miamiDadeFutureSolicitationToResult(
+  row: MiamiDadeFutureSolicitation,
+  terms: string[],
+  index: number,
+): UnifiedSearchResult | undefined {
+  const title = row.documentTitle?.trim();
+  const postedDate = row.releaseDate?.trim();
+  const deadline = row.removalDate?.trim();
+  const contact = row.emailAddress?.trim();
+  const fileName = row.fileName?.trim();
+  const url = fileName ? safeAbsoluteUrl(fileName, MIAMI_DADE_FUTURE_SOLICITATION_DOC_BASE_URL) ?? MIAMI_DADE_FUTURE_SOLICITATIONS_URL : MIAMI_DADE_FUTURE_SOLICITATIONS_URL;
+  const haystack = [title, postedDate, deadline, contact, "Miami-Dade future solicitation forecast feedback procurement"]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const score = scoreOpportunity(haystack, terms, 69 - Math.min(index, 35));
+
+  if (!title || (terms.length > 0 && score <= 0)) {
+    return undefined;
+  }
+
+  if (isPastDeadline(deadline)) {
+    return undefined;
+  }
+
+  return {
+    id: `miami-dade:future:${fileName ?? title}`,
+    resultType: "opportunity",
+    title,
+    buyer: "Miami-Dade County",
+    sourceName: "Miami-Dade County Procurement",
+    sourceLevel: "Local",
+    sourceState: "FL",
+    sourceType: "Miami-Dade future solicitations JSON feed",
+    url,
+    portalUrl: MIAMI_DADE_FUTURE_SOLICITATIONS_URL,
+    score,
+    status: "Future solicitation notice",
+    postedDate,
+    deadline,
+    contact,
+    documents: [postedDate ? `Released: ${postedDate}` : undefined, deadline ? `Notice removal date: ${deadline}` : undefined].filter(
+      (value): value is string => Boolean(value),
+    ),
+    documentLinks: [{ label: "Miami-Dade future solicitation notice", url }],
+    submissionInstructions:
+      "Open the future solicitation notice, review the preview documents, save the buyer contact if listed, and monitor Miami-Dade for the official solicitation release.",
+    applicationChecklist: applicationChecklist({
+      hasSolicitationId: false,
+      hasDeadline: Boolean(deadline),
+      hasDocuments: Boolean(fileName),
+      hasContact: Boolean(contact),
+    }),
+    summary: [postedDate ? `Released ${postedDate}.` : "", deadline ? `Notice remains posted until ${deadline}.` : "", contact ? `Contact: ${contact}.` : ""]
+      .filter(Boolean)
+      .join(" "),
+    nextAction: "Open the future solicitation notice and prepare discovery questions or draft response material before the official solicitation opens.",
+  };
+}
+
+async function searchGwinnettCountyPurchasing(query: string): Promise<SearchTaskResult> {
+  const source = "Gwinnett County Purchasing";
+  try {
+    const response = await fetchPublicPage(GWINNETT_COUNTY_SOLICITATIONS_URL);
+    if (!response.ok) {
+      return { source, results: [], error: `Gwinnett County solicitations page returned ${response.status}` };
+    }
+
+    return { source, results: parseGwinnettCountySolicitations(await response.text(), query) };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+function parseGwinnettCountySolicitations(html: string, query: string): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+  const rows = Array.from(html.matchAll(/<li\b[^>]*class=["'][^"']*\blist-group-item\b[^"']*\blist-group-item-flex\b[^"']*["'][^>]*>([\s\S]*?)<\/li>/gi));
+
+  return rows
+    .map((row, index) => gwinnettCountySolicitationToResult(row[1], terms, index))
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+function gwinnettCountySolicitationToResult(rowHtml: string, terms: string[], index: number): UnifiedSearchResult | undefined {
+  const paragraphs = Array.from(rowHtml.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)).map((paragraph) => paragraph[1]);
+  const idAnchor = paragraphs[0]?.match(/<a\b[^>]*href=(["'])(.*?)\1[^>]*>([\s\S]*?)<\/a>/i);
+  const solicitationId = cleanText(idAnchor?.[3] ?? paragraphs[0] ?? "");
+  const title = cleanText(paragraphs[1] ?? "");
+  const rowText = htmlToText(rowHtml);
+  const contact = cleanText(rowHtml.match(/mailto:([^"'>\s]+)/i)?.[1] ?? "");
+  const deadline = fieldFromText(rowText, /Opening Date\s*:\s*([^]+?)(?=\s+(?:Virtual Bid Opening|Addendum|Buyer Contact)|$)/i);
+  const documentLinks = dedupeDocumentLinks(extractAnchorLinks(rowHtml, GWINNETT_COUNTY_SOLICITATIONS_URL));
+  const url = documentLinks[0]?.url ?? GWINNETT_COUNTY_SOLICITATIONS_URL;
+  const haystack = [title, solicitationId, contact, deadline, rowText, "Gwinnett County bid solicitation purchasing"]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const score = scoreOpportunity(haystack, terms, 73 - Math.min(index, 35));
+
+  if (!title || (terms.length > 0 && score <= 0)) {
+    return undefined;
+  }
+
+  if (isPastDeadline(deadline)) {
+    return undefined;
+  }
+
+  return {
+    id: `gwinnett:${solicitationId || title}`,
+    resultType: "opportunity",
+    title,
+    buyer: "Gwinnett County",
+    sourceName: "Gwinnett County Purchasing",
+    sourceLevel: "Local",
+    sourceState: "GA",
+    sourceType: "Official county solicitations page",
+    url,
+    portalUrl: GWINNETT_COUNTY_SOLICITATIONS_URL,
+    score,
+    status: "Open public solicitation",
+    solicitationId,
+    deadline,
+    contact,
+    documents: [
+      solicitationId ? `Solicitation ID: ${solicitationId}` : undefined,
+      contact ? `Buyer contact: ${contact}` : undefined,
+      documentLinks.length ? `${documentLinks.length} public document link(s) captured` : undefined,
+    ].filter((value): value is string => Boolean(value)),
+    documentLinks,
+    submissionInstructions:
+      "Open the Gwinnett County notice and addenda, review the official package, contact the listed buyer with questions if needed, and follow the county's submission instructions before the opening date.",
+    applicationChecklist: applicationChecklist({
+      hasSolicitationId: Boolean(solicitationId),
+      hasDeadline: Boolean(deadline),
+      hasDocuments: documentLinks.length > 0,
+      hasContact: Boolean(contact),
+    }),
+    summary: [solicitationId ? `Solicitation ${solicitationId}.` : "", deadline ? `Opens ${deadline}.` : "", contact ? `Buyer contact: ${contact}.` : ""]
+      .filter(Boolean)
+      .join(" "),
+    nextAction: "Open the notice and addenda, download the county documents, then decide whether to save it for draft response work.",
+  };
 }
 
 function parseBidNetAgencySolicitations(html: string, query: string, source: BidNetAgencySource): UnifiedSearchResult[] {
@@ -2446,6 +2813,37 @@ type OpenGovProject = {
   template?: { title?: string };
   addendums?: unknown[];
 };
+type DemandStarBid = {
+  bidId?: number | string;
+  bidName?: string;
+  bidIdentifier?: string;
+  agency?: string;
+  broadCastDate?: string;
+  dueDate?: string;
+  city?: string;
+  state?: string;
+  status?: string;
+  planholders?: number;
+};
+type DemandStarAgencySearchResponse = {
+  result?: DemandStarBid[];
+  total?: number;
+};
+type MiamiDadeCurrentSolicitation = {
+  solicitationNumber?: string;
+  solicitationType?: string;
+  title?: string;
+  openingDate?: string;
+  postedDate?: string;
+};
+type MiamiDadeFutureSolicitation = {
+  documentTitle?: string;
+  releaseDate?: string;
+  removalDate?: string;
+  emailAddress?: string;
+  sendFeedBack?: string;
+  fileName?: string;
+};
 type WorkdayEvent = {
   id?: string;
   projectId?: string;
@@ -2938,6 +3336,140 @@ function openGovProjectToResult(
     }),
     summary: [summary, department ? `Department: ${department}.` : "", deadline ? `Closes ${deadline}.` : ""].filter(Boolean).join(" "),
     nextAction: "Open the OpenGov posting, confirm the scope and required attachments, then route it for human review.",
+  };
+}
+
+async function searchDemandStar(query: string, source: DemandStarSource): Promise<SearchTaskResult> {
+  try {
+    const cacheKey = `demandstar:${source.sourceName}:${query.toLowerCase()}`;
+    const cached = demandStarCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return { source: source.sourceName, ...cached.value };
+    }
+
+    const existingRequest = demandStarInFlight.get(cacheKey);
+    if (existingRequest) {
+      return { source: source.sourceName, ...(await existingRequest) };
+    }
+
+    const request: Promise<ConnectorSearchResult> = fetchDemandStarBids(source)
+      .then((bids) => ({ results: parseDemandStarBids(bids, query, source) }))
+      .finally(() => {
+        demandStarInFlight.delete(cacheKey);
+      });
+    demandStarInFlight.set(cacheKey, request);
+
+    const value = await request;
+    demandStarCache.set(cacheKey, {
+      expiresAt: Date.now() + (value.error ? DEMANDSTAR_ERROR_CACHE_MS : DEMANDSTAR_SUCCESS_CACHE_MS),
+      value,
+    });
+
+    return { source: source.sourceName, ...value };
+  } catch (error) {
+    return { source: source.sourceName, results: [], error: errorMessage(error) };
+  }
+}
+
+async function fetchDemandStarBids(source: DemandStarSource): Promise<DemandStarBid[]> {
+  const url = `${DEMANDSTAR_API_BASE_URL}/agency/search?id=${encodeURIComponent(source.agencyGuid)}`;
+  const response = await fetchWithTimeout(
+    url,
+    {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 GovContractFinder/0.1",
+        Accept: "application/json, text/plain, */*",
+        Referer: source.portalUrl,
+      },
+      cache: "no-store",
+    },
+    DEMANDSTAR_FETCH_TIMEOUT_MS,
+  );
+
+  if (!response.ok) {
+    throw new Error(`DemandStar agency feed returned ${response.status}`);
+  }
+
+  const data = (await response.json()) as DemandStarAgencySearchResponse | DemandStarBid[];
+  return Array.isArray(data) ? data : data.result ?? [];
+}
+
+function parseDemandStarBids(bids: DemandStarBid[], query: string, source: DemandStarSource): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+
+  return bids
+    .map((bid, index) => demandStarBidToResult(bid, terms, index, source))
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+function demandStarBidToResult(
+  bid: DemandStarBid,
+  terms: string[],
+  index: number,
+  source: DemandStarSource,
+): UnifiedSearchResult | undefined {
+  const bidId = typeof bid.bidId === "number" ? String(bid.bidId) : bid.bidId?.trim();
+  const title = bid.bidName?.trim();
+  const solicitationId = bid.bidIdentifier?.trim();
+  const postedDate = formatIsoDateTime(bid.broadCastDate);
+  const deadline = formatIsoDateTime(bid.dueDate);
+  const status = bid.status?.trim() || "Open public DemandStar posting";
+  const buyer = bid.agency?.trim() || source.buyer;
+  const location = [bid.city, bid.state].filter(Boolean).join(", ");
+  const haystack = [title, solicitationId, buyer, location, status, "DemandStar bid rfp rfq solicitation"]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const score = scoreOpportunity(haystack, terms, 72 - Math.min(index, 45));
+
+  if (!title || (terms.length > 0 && score <= 0)) {
+    return undefined;
+  }
+
+  if (isPastDeadline(deadline)) {
+    return undefined;
+  }
+
+  const url = bidId ? `https://www.demandstar.com/app/limited/bids/${encodeURIComponent(bidId)}/details` : source.portalUrl;
+  const documents = [
+    solicitationId ? `Bid identifier: ${solicitationId}` : undefined,
+    postedDate ? `Broadcast date: ${postedDate}` : undefined,
+    location ? `Location: ${location}` : undefined,
+    typeof bid.planholders === "number" ? `Planholders: ${bid.planholders}` : undefined,
+  ].filter((value): value is string => Boolean(value));
+
+  return {
+    id: `demandstar:${source.sourceName}:${bidId ?? solicitationId ?? title}`,
+    resultType: "opportunity",
+    title,
+    buyer,
+    sourceName: source.sourceName,
+    sourceLevel: source.level,
+    sourceState: source.state,
+    sourceType: "DemandStar public agency feed",
+    url,
+    portalUrl: source.portalUrl,
+    score,
+    status,
+    solicitationId,
+    postedDate,
+    deadline,
+    documents,
+    documentLinks: [{ label: "DemandStar posting and documents", url }],
+    submissionInstructions:
+      "Open the DemandStar posting, register or sign in if required, download the official documents and addenda, then submit through the listed DemandStar or agency process before the due date.",
+    applicationChecklist: applicationChecklist({
+      hasSolicitationId: Boolean(solicitationId),
+      hasDeadline: Boolean(deadline),
+      hasDocuments: true,
+      hasContact: false,
+    }),
+    summary: [solicitationId ? `Bid ${solicitationId}.` : "", postedDate ? `Broadcast ${postedDate}.` : "", deadline ? `Due ${deadline}.` : ""]
+      .filter(Boolean)
+      .join(" "),
+    nextAction: "Open the DemandStar posting, download the official package and addenda, then decide whether to save it for drafting.",
   };
 }
 
