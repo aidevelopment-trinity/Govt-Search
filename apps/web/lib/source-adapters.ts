@@ -575,7 +575,7 @@ export async function searchConnectedSources({ query, state, level, sources }: S
     continue;
   }
 
-  const settled = await runSearchTasks(tasks, SEARCH_TASK_CONCURRENCY, SEARCH_TOTAL_TIMEOUT_MS);
+  const settled = await runSearchTasks([...tasks].sort((a, b) => searchTaskPriority(a.source) - searchTaskPriority(b.source)), SEARCH_TASK_CONCURRENCY, SEARCH_TOTAL_TIMEOUT_MS);
   const results = dedupeResults(settled.flatMap((item) => item.results).map((result) => enrichSearchResult(result, query)))
     .sort((a, b) => resultRankScore(b) - resultRankScore(a) || a.title.localeCompare(b.title))
     .slice(0, MAX_RESULTS);
@@ -3897,6 +3897,18 @@ function resultRankScore(result: UnifiedSearchResult) {
     (result.budget ? 4 : 0) +
     (result.summary.length > 80 ? 3 : 0)
   );
+}
+
+function searchTaskPriority(sourceName: string) {
+  if (TEXAS_IONWAVE_SOURCE_BY_NAME.has(sourceName)) {
+    return 3;
+  }
+
+  if (/SAM.gov|Texas Electronic State Business Daily|Texas ESBD|Sourcewell|NASPO|OMNIA|BuyBoard|Choice Partners|Texas DIR/i.test(sourceName)) {
+    return 0;
+  }
+
+  return 1;
 }
 
 function dedupeResults(results: UnifiedSearchResult[]) {
