@@ -17,7 +17,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const trackedOpportunityId = url.searchParams.get("trackedOpportunityId") ?? undefined;
   const result = await listProposalDrafts(trackedOpportunityId);
-  const status = result.ok ? 200 : result.configured ? 502 : 503;
+  const status = statusFromConfiguredResult(result);
   return jsonNoStore(result, { status });
 }
 
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
 
   const opportunityResult = await getTrackedOpportunity(body.trackedOpportunityId);
   if (!opportunityResult.ok) {
-    const status = opportunityResult.configured ? 502 : 503;
+    const status = statusFromConfiguredResult(opportunityResult);
     return jsonNoStore(opportunityResult, { status });
   }
 
@@ -41,7 +41,7 @@ export async function POST(request: Request) {
 
   const companyResult = await getCompanyProfile();
   if (!companyResult.ok && companyResult.configured === false) {
-    return jsonNoStore(companyResult, { status: 503 });
+    return jsonNoStore(companyResult, { status: 200 });
   }
 
   const profile = companyResult.ok ? companyResult.data[0] ?? null : null;
@@ -61,7 +61,7 @@ export async function POST(request: Request) {
     googleDocUrl: googleResult.ok ? googleResult.docUrl : null,
   });
 
-  const status = savedDraft.ok ? 200 : savedDraft.configured ? 502 : 503;
+  const status = statusFromConfiguredResult(savedDraft);
   return jsonNoStore(
     {
       ...savedDraft,
@@ -83,8 +83,12 @@ export async function DELETE(request: Request) {
   }
 
   const result = await deleteProposalDraft(id);
-  const status = result.ok ? 200 : result.configured ? 502 : 503;
+  const status = statusFromConfiguredResult(result);
   return jsonNoStore(result, { status });
+}
+
+function statusFromConfiguredResult(result: { ok: boolean; configured?: boolean }) {
+  return result.ok || result.configured === false ? 200 : 502;
 }
 
 function normalizeQuestionnaire(value: DraftQuestionnaire | undefined): DraftQuestionnaire {

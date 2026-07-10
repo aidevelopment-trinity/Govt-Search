@@ -27,6 +27,7 @@ export type UnifiedSearchResult = {
   url: string;
   portalUrl: string;
   score: number;
+  qualityTier?: "strong" | "possible" | "weak";
   status: string;
   solicitationId?: string;
   deadline?: string;

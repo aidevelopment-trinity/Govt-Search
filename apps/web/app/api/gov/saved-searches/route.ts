@@ -18,6 +18,6 @@ export async function POST(request: Request) {
     errorCount: Number(body.errorCount ?? 0),
   });
 
-  const status = result.ok ? 200 : result.configured ? 502 : 503;
+  const status = result.ok || result.configured === false ? 200 : 502;
   return NextResponse.json(result, { status });
 }

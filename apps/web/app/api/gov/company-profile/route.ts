@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   const result = await getCompanyProfile();
-  const status = result.ok ? 200 : result.configured ? 502 : 503;
+  const status = statusFromConfiguredResult(result);
   const body = result.ok ? { ...result, data: result.data[0] ?? null } : result;
   return jsonNoStore(body, { status });
 }
@@ -29,9 +29,13 @@ export async function PATCH(request: Request) {
     team_bios: nullableStringField(body.team_bios),
     standard_language: nullableStringField(body.standard_language),
   });
-  const status = result.ok ? 200 : result.configured ? 502 : 503;
+  const status = statusFromConfiguredResult(result);
   const responseBody = result.ok ? { ...result, data: result.data[0] ?? null } : result;
   return jsonNoStore(responseBody, { status });
+}
+
+function statusFromConfiguredResult(result: { ok: boolean; configured?: boolean }) {
+  return result.ok || result.configured === false ? 200 : 502;
 }
 
 function stringField(value: unknown) {

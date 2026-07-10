@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   const result = await listTrackedOpportunities();
-  const status = result.ok ? 200 : result.configured ? 502 : 503;
+  const status = statusFromConfiguredResult(result);
   return jsonNoStore(result, { status });
 }
 
@@ -18,7 +18,7 @@ export async function POST(request: Request) {
   }
 
   const result = await trackOpportunity(body);
-  const status = result.ok ? 200 : result.configured ? 502 : 503;
+  const status = statusFromConfiguredResult(result);
   return jsonNoStore(result, { status });
 }
 
@@ -32,7 +32,7 @@ export async function PATCH(request: Request) {
   const pursuitStatus = typeof body.pursuitStatus === "string" ? body.pursuitStatus : undefined;
   const notes = typeof body.notes === "string" ? body.notes : undefined;
   const result = await updateTrackedOpportunity({ id: body.id, pursuitStatus, notes });
-  const status = result.ok ? 200 : result.configured ? 502 : 503;
+  const status = statusFromConfiguredResult(result);
   return jsonNoStore(result, { status });
 }
 
@@ -46,8 +46,12 @@ export async function DELETE(request: Request) {
   }
 
   const result = await unsaveTrackedOpportunity(id);
-  const status = result.ok ? 200 : result.configured ? 502 : 503;
+  const status = statusFromConfiguredResult(result);
   return jsonNoStore(result, { status });
+}
+
+function statusFromConfiguredResult(result: { ok: boolean; configured?: boolean }) {
+  return result.ok || result.configured === false ? 200 : 502;
 }
 
 function jsonNoStore(body: unknown, init: ResponseInit = {}) {

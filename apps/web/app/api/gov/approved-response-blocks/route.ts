@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   const result = await listApprovedResponseBlocks();
-  const status = result.ok ? 200 : result.configured ? 502 : 503;
+  const status = statusFromConfiguredResult(result);
   return jsonNoStore(result, { status });
 }
 
@@ -32,8 +32,12 @@ export async function POST(request: Request) {
     sourceOpportunityId: typeof body.sourceOpportunityId === "string" ? body.sourceOpportunityId : null,
     tags,
   });
-  const status = result.ok ? 200 : result.configured ? 502 : 503;
+  const status = statusFromConfiguredResult(result);
   return jsonNoStore(result, { status });
+}
+
+function statusFromConfiguredResult(result: { ok: boolean; configured?: boolean }) {
+  return result.ok || result.configured === false ? 200 : 502;
 }
 
 function jsonNoStore(body: unknown, init: ResponseInit = {}) {

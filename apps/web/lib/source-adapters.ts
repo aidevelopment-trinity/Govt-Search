@@ -23,6 +23,7 @@ type SearchTaskResult = { source: string; results: UnifiedSearchResult[]; error?
 type SearchTask = { source: string; run: () => Promise<SearchTaskResult> };
 type SamSearchResult = { results: UnifiedSearchResult[]; error?: string };
 type ConnectorSearchResult = { results: UnifiedSearchResult[]; error?: string };
+type ResultQualityTier = NonNullable<UnifiedSearchResult["qualityTier"]>;
 
 const TEXAS_ESBD_URL = "https://www.txsmartbuy.gov/esbd";
 const TEXAS_ESBD_SERVICE_URL = "https://www.txsmartbuy.gov/app/extensions/CPA/CPAMain/1.0.0/services/ESBD.Service.ss";
@@ -3671,6 +3672,16 @@ function extractOpportunityLinks(html: string, query: string, source: Procuremen
 
 function enrichSearchResult(result: UnifiedSearchResult, query: string): UnifiedSearchResult {
   const documentLinks = result.documentLinks?.length ? result.documentLinks : [{ label: "Posting/detail page", url: result.url }];
+  const evidenceText = [
+    result.title,
+    result.summary,
+    result.solicitationId,
+    result.documents?.join(" "),
+    documentLinks.map((link) => link.label).join(" "),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
   const haystack = [
     result.title,
     result.summary,
@@ -3750,13 +3761,171 @@ function enrichSearchResult(result: UnifiedSearchResult, query: string): Unified
     fitScore += 4;
   }
 
+  const quality = classifyResultQuality({
+    query,
+    result,
+    evidenceText,
+    matchedTerms,
+  });
+
+  fitScore += quality.scoreAdjustment;
+  fitReasons.push(...quality.fitReasons);
+  riskFlags.push(...quality.riskFlags);
+
+  if (quality.tier === "strong") {
+    fitScore = Math.max(fitScore, 76);
+  } else if (quality.tier === "possible") {
+    fitScore = Math.min(fitScore, 84);
+  } else {
+    fitScore = Math.min(fitScore, 58);
+  }
+
   return {
     ...result,
     documentLinks,
+    qualityTier: quality.tier,
     score: Math.max(1, Math.min(100, Math.round(fitScore))),
     fitReasons: fitReasons.slice(0, 5),
     riskFlags: riskFlags.slice(0, 5),
   };
+}
+
+function classifyResultQuality({
+  query,
+  result,
+  evidenceText,
+  matchedTerms,
+}: {
+  query: string;
+  result: UnifiedSearchResult;
+  evidenceText: string;
+  matchedTerms: string[];
+}): { tier: ResultQualityTier; scoreAdjustment: number; fitReasons: string[]; riskFlags: string[] } {
+  const normalizedQuery = normalizeConcept(query);
+  const titleText = result.title.toLowerCase();
+  const importantTokens = importantConceptTokens(normalizedQuery);
+  const matchedImportantTokens = importantTokens.filter((term) => termInText(evidenceText, term));
+  const titleImportantTokens = importantTokens.filter((term) => termInText(titleText, term));
+  const exactPhrase = normalizedQuery.includes(" ") && evidenceText.includes(normalizedQuery);
+  const titlePhrase = exactPhrase && titleText.includes(normalizedQuery);
+  const isTrainingSearch = hasTrainingBusinessIntent(normalizedQuery);
+  const trainingSignal = TRAINING_DELIVERY_PATTERN.test(evidenceText);
+  const leadershipSignal = LEADERSHIP_MANAGEMENT_PATTERN.test(evidenceText);
+  const titleTrainingSignal = TITLE_TRAINING_DELIVERY_PATTERN.test(titleText);
+  const titleLeadershipSignal = LEADERSHIP_MANAGEMENT_PATTERN.test(titleText);
+  const titleConceptSignal = titlePhrase || titleImportantTokens.length > 0 || titleTrainingSignal || titleLeadershipSignal;
+  const serviceIntentSignal = isTrainingSearch ? trainingSignal && (leadershipSignal || matchedImportantTokens.length >= 2) : matchedImportantTokens.length >= 2;
+  const documentSignal = Boolean(result.documentLinks?.length || result.documents?.length);
+  const mismatchLabels = mismatchPatternsFor(evidenceText);
+  const hasMultiTermQuery = importantTokens.length > 1 || normalizedQuery.includes(" ");
+  const fitReasons: string[] = [];
+  const riskFlags: string[] = [];
+  let scoreAdjustment = 0;
+
+  if (titlePhrase) {
+    scoreAdjustment += 18;
+    fitReasons.push("Search phrase appears in the opportunity title.");
+  } else if (exactPhrase) {
+    scoreAdjustment += 14;
+    fitReasons.push("Search phrase appears in the posting details.");
+  }
+
+  if (serviceIntentSignal) {
+    scoreAdjustment += 12;
+    fitReasons.push(isTrainingSearch ? "Matches training or leadership service intent." : "Matches multiple important search terms.");
+  } else if (matchedImportantTokens.length === 1 && matchedTerms.length > 0) {
+    scoreAdjustment -= 14;
+    riskFlags.push("Only one important search term was found, so this may be a broad match.");
+  }
+
+  if (documentSignal && (exactPhrase || serviceIntentSignal)) {
+    scoreAdjustment += 5;
+  }
+
+  if (isTrainingSearch && hasMultiTermQuery && !titleConceptSignal && !exactPhrase) {
+    scoreAdjustment -= 18;
+    riskFlags.push("The title does not show a clear match to the full search concept.");
+  }
+
+  if (mismatchLabels.length > 0) {
+    scoreAdjustment -= Math.min(30, mismatchLabels.length * 14);
+    riskFlags.push(`Downranked because it appears related to ${mismatchLabels.slice(0, 2).join(" and ")}.`);
+  }
+
+  let tier: ResultQualityTier = "weak";
+  if (exactPhrase || (isTrainingSearch && titleTrainingSignal && titleLeadershipSignal && mismatchLabels.length === 0)) {
+    tier = "strong";
+  } else if (isTrainingSearch && titleConceptSignal && (serviceIntentSignal || titleTrainingSignal || titleLeadershipSignal)) {
+    tier = "possible";
+  } else if (!isTrainingSearch && (serviceIntentSignal || matchedImportantTokens.length >= Math.min(2, Math.max(1, importantTokens.length)))) {
+    tier = "possible";
+  }
+
+  if (mismatchLabels.length > 0 && !exactPhrase) {
+    tier = tier === "strong" ? "possible" : "weak";
+  }
+
+  if (isTrainingSearch && hasMultiTermQuery && !titleConceptSignal && !exactPhrase) {
+    tier = "weak";
+  }
+
+  if (importantTokens.length > 1 && matchedImportantTokens.length === 0) {
+    tier = "weak";
+    scoreAdjustment -= 18;
+    riskFlags.push("The connected source did not expose the important search terms in the posting text.");
+  }
+
+  return { tier, scoreAdjustment, fitReasons, riskFlags };
+}
+
+const BROAD_CONCEPT_TERMS = new Set(["and", "for", "the", "with", "services", "service", "development", "professional", "program", "programs", "solution", "solutions"]);
+const TRAINING_DELIVERY_PATTERN =
+  /\b(training|trainings|learning|education|educational|instructional|workshop|workshops|course|courses|curriculum|curricula|facilitation|facilitator|coaching|coach|mentoring|professional development|staff development|leadership development|management development)\b/i;
+const TITLE_TRAINING_DELIVERY_PATTERN =
+  /\b(training|trainings|learning|development|education|educational|instructional|workshop|workshops|course|courses|curriculum|facilitation|coaching|coach|mentoring)\b/i;
+const LEADERSHIP_MANAGEMENT_PATTERN =
+  /\b(leadership|leader|leaders|management|manager|managers|supervisor|supervisors|supervisory|executive|executives|organizational|organization|workforce|team|teams|change management|coaching|coach)\b/i;
+const TRAINING_BUSINESS_QUERY_PATTERN =
+  /\b(leadership|management|manager|supervisor|executive|coaching|training|learning|development|workforce|organizational|organization|facilitation|curriculum|professional)\b/i;
+const QUALITY_MISMATCH_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
+  {
+    label: "software/platform procurement",
+    pattern:
+      /\b(lms|learning management system|software|platform|system implementation|application development|license|licensing|subscription|subscriptions|saas|cloud hosting|managed services|information system)\b/i,
+  },
+  { label: "exam or testing administration", pattern: /\b(licensing examination|exam administration|testing services|test administration|assessment platform|psychometric)\b/i },
+  { label: "clinical or medical staffing", pattern: /\b(psychologist|diagnostician|clinical|medical|nursing|healthcare|therapy|therapist|physician|patient)\b/i },
+  { label: "temporary staffing or recruiting", pattern: /\b(staffing|temporary labor|recruiting|recruitment|background check|background checks|personnel services)\b/i },
+  { label: "construction or facility work", pattern: /\b(construction|renovation|roofing|hvac|plumbing|janitorial|custodial|landscaping|maintenance)\b/i },
+  { label: "specialized school or student services", pattern: /\b(special education|student enrichment|student activities|educational interpreting|interpreter services|teacher certification|teaching and instruction|tutoring|school psychologist)\b/i },
+  { label: "trade or operational training", pattern: /\b(aircraft|pilot|fire training fuel|crane|rigging|signaling|dietician|physical fitness|forklift|equipment operator)\b/i },
+];
+
+function normalizeConcept(value: string) {
+  return value.toLowerCase().replace(/[^\w\s-]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function importantConceptTokens(normalizedQuery: string) {
+  return normalizedQuery
+    .split(/\s+/)
+    .map((term) => term.trim())
+    .filter((term) => term.length > 2 && !BROAD_CONCEPT_TERMS.has(term));
+}
+
+function hasTrainingBusinessIntent(normalizedQuery: string) {
+  return TRAINING_BUSINESS_QUERY_PATTERN.test(normalizedQuery);
+}
+
+function mismatchPatternsFor(text: string) {
+  return QUALITY_MISMATCH_PATTERNS.filter(({ pattern }) => pattern.test(text)).map(({ label }) => label);
+}
+
+function termInText(text: string, term: string) {
+  return new RegExp(`\\b${escapeRegex(term)}\\b`, "i").test(text);
+}
+
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function sourceStatusFromTaskResult(result: SearchTaskResult): SourceSearchStatus {
@@ -3888,8 +4057,11 @@ function hasDirectConceptSignal(haystack: string, query: string) {
 }
 
 function resultRankScore(result: UnifiedSearchResult) {
+  const qualityBoost = result.qualityTier === "strong" ? 18 : result.qualityTier === "possible" ? 5 : result.qualityTier === "weak" ? -24 : 0;
+
   return (
     result.score +
+    qualityBoost +
     (result.deadline ? 8 : 0) +
     (result.solicitationId ? 6 : 0) +
     (result.documents?.length || result.documentLinks?.length ? 5 : 0) +

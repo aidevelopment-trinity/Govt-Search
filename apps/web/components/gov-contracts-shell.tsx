@@ -19,6 +19,7 @@ import {
   Search,
   ShieldCheck,
   Settings,
+  type LucideIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { ProcurementSource, SourceSearchStatus, UnifiedSearchResponse, UnifiedSearchResult } from "@/lib/gov-types";
@@ -40,12 +41,20 @@ type SavedProposal = {
 const levelOptions = ["All", "Federal", "State", "Local", "Adjacent", "Education"];
 const defaultTerms = ["leadership development", "management training", "supervisor training", "organizational development", "executive coaching"];
 const lastSearchStorageKey = "gov-contract-finder:last-search";
+const qualityModes = [
+  { value: "focused", label: "Focused" },
+  { value: "strict", label: "Strict" },
+  { value: "broad", label: "Broad" },
+] as const;
+
+type QualityMode = (typeof qualityModes)[number]["value"];
 
 type LastSearchState = {
   query: string;
   state: string;
   level: string;
   selectedSource: string;
+  qualityMode?: QualityMode;
   searchResponse: UnifiedSearchResponse;
   savedAt: string;
 };
@@ -61,6 +70,7 @@ export function GovContractsShell({
   const [state, setState] = useState("All");
   const [level, setLevel] = useState("All");
   const [selectedSource, setSelectedSource] = useState("All");
+  const [qualityMode, setQualityMode] = useState<QualityMode>("focused");
   const [lastSearchFilters, setLastSearchFilters] = useState({ state: "All", level: "All" });
   const [searchResponse, setSearchResponse] = useState<UnifiedSearchResponse>(
     () => providedInitialSearchResponse ?? initialSearchResponse("leadership development"),
@@ -79,21 +89,26 @@ export function GovContractsShell({
       }, new Map<string, number>()),
     ).sort(([stateA], [stateB]) => stateA.localeCompare(stateB));
   }, [sources]);
+  const qualityFilteredResults = useMemo(
+    () => searchResponse.results.filter((result) => resultMatchesQuality(result, qualityMode)),
+    [qualityMode, searchResponse.results],
+  );
+  const hiddenByQualityCount = searchResponse.results.length - qualityFilteredResults.length;
   const sourceTabs = useMemo(() => {
-    const counts = searchResponse.results.reduce((items, result) => {
+    const counts = qualityFilteredResults.reduce((items, result) => {
       items.set(result.sourceName, (items.get(result.sourceName) ?? 0) + 1);
       return items;
     }, new Map<string, number>());
 
-    return [["All", searchResponse.results.length] as const, ...Array.from(counts.entries()).sort(([a], [b]) => a.localeCompare(b))];
-  }, [searchResponse.results]);
+    return [["All", qualityFilteredResults.length] as const, ...Array.from(counts.entries()).sort(([a], [b]) => a.localeCompare(b))];
+  }, [qualityFilteredResults]);
   const sourceStatuses = searchResponse.sourceStatuses ?? [];
-  const visibleResults = selectedSource === "All" ? searchResponse.results : searchResponse.results.filter((result) => result.sourceName === selectedSource);
+  const visibleResults = selectedSource === "All" ? qualityFilteredResults : qualityFilteredResults.filter((result) => result.sourceName === selectedSource);
   const hasSearched = searchResponse.searchedSources.length > 0 || searchResponse.errors.length > 0;
   const statesCount = new Set(sources.map((source) => source.state)).size;
   const sourceIssueCount = sourceStatuses.filter((status) => status.status !== "ok").length;
   const runSummary = hasSearched
-    ? `${searchResponse.counts.opportunities} opportunities · ${searchResponse.counts.connected} sources searched · ${sourceIssueCount} source ${
+    ? `${qualityFilteredResults.length} shown / ${searchResponse.counts.opportunities} found · ${searchResponse.counts.connected} sources searched · ${sourceIssueCount} source ${
         sourceIssueCount === 1 ? "issue" : "issues"
       }`
     : "Ready";
@@ -113,10 +128,17 @@ export function GovContractsShell({
       state: lastSearchFilters.state,
       level: lastSearchFilters.level,
       selectedSource,
+      qualityMode,
       searchResponse,
       savedAt: new Date().toISOString(),
     });
-  }, [hasSearched, lastSearchFilters.level, lastSearchFilters.state, searchResponse, selectedSource]);
+  }, [hasSearched, lastSearchFilters.level, lastSearchFilters.state, qualityMode, searchResponse, selectedSource]);
+
+  useEffect(() => {
+    if (selectedSource !== "All" && !sourceTabs.some(([source]) => source === selectedSource)) {
+      setSelectedSource("All");
+    }
+  }, [selectedSource, sourceTabs]);
 
   function restoreLastSearch() {
     try {
@@ -133,6 +155,7 @@ export function GovContractsShell({
       setQuery(cached.query);
       setState(cached.state ?? "All");
       setLevel(cached.level ?? "All");
+      setQualityMode(cached.qualityMode ?? "focused");
       setLastSearchFilters({ state: cached.state ?? "All", level: cached.level ?? "All" });
       setSelectedSource(cached.selectedSource ?? "All");
       setSearchResponse({ ...cached.searchResponse, sourceStatuses: cached.searchResponse.sourceStatuses ?? [] });
@@ -198,7 +221,15 @@ export function GovContractsShell({
       const data = (await response.json()) as UnifiedSearchResponse;
       const normalizedData = { ...data, sourceStatuses: data.sourceStatuses ?? [] };
       setSearchResponse(normalizedData);
-      saveLastSearch({ query: concept, state: searchFilters.state, level: searchFilters.level, selectedSource: "All", searchResponse: normalizedData, savedAt: new Date().toISOString() });
+      saveLastSearch({
+        query: concept,
+        state: searchFilters.state,
+        level: searchFilters.level,
+        selectedSource: "All",
+        qualityMode,
+        searchResponse: normalizedData,
+        savedAt: new Date().toISOString(),
+      });
     } catch (error) {
       setSearchResponse({
         query: concept,
@@ -383,6 +414,30 @@ export function GovContractsShell({
               </button>
             </div>
 
+            {hasSearched ? (
+              <div className="flex flex-col gap-3 border-b border-line px-4 py-3 md:flex-row md:items-center md:justify-between">
+                <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                  <Filter className="size-4 text-slate-400" />
+                  <span>Quality</span>
+                  {hiddenByQualityCount > 0 ? <span className="text-xs font-normal text-slate-500">{hiddenByQualityCount} weak hidden</span> : null}
+                </div>
+                <div className="inline-flex w-full rounded-md border border-line bg-slate-50 p-1 md:w-auto">
+                  {qualityModes.map((mode) => (
+                    <button
+                      key={mode.value}
+                      className={`h-8 flex-1 rounded px-3 text-xs font-semibold md:flex-none ${
+                        qualityMode === mode.value ? "bg-ink text-white" : "text-slate-600 hover:bg-white hover:text-ink"
+                      }`}
+                      type="button"
+                      onClick={() => setQualityMode(mode.value)}
+                    >
+                      {mode.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             {sourceTabs.length > 1 ? (
               <div className="flex gap-2 overflow-x-auto border-b border-line px-4 py-3">
                 {sourceTabs.map(([source, count]) => (
@@ -406,9 +461,9 @@ export function GovContractsShell({
               ))}
               {visibleResults.length === 0 ? (
                 <div className="px-4 py-10 text-center">
-                  <p className="text-sm font-medium text-slate-700">{hasSearched ? "No matching opportunities found." : "No search has run yet."}</p>
+                  <p className="text-sm font-medium text-slate-700">{hasSearched ? "No matching opportunities in this view." : "No search has run yet."}</p>
                   <p className="mt-1 text-sm text-slate-500">
-                    {hasSearched ? "Try a broader concept or a narrower state filter." : "Enter a concept and click Search."}
+                    {hasSearched ? "Switch quality to Broad, try a more specific concept, or adjust the state and level filters." : "Enter a concept and click Search."}
                   </p>
                 </div>
               ) : null}
@@ -522,6 +577,7 @@ function ResultRow({ result, onSaved }: { result: UnifiedSearchResult; onSaved: 
   const checklist = result.applicationChecklist?.length ? result.applicationChecklist : fallbackChecklist(result);
   const documents = result.documents?.filter(Boolean) ?? [];
   const documentLinks = result.documentLinks?.filter((link) => link.label && link.url) ?? [];
+  const qualityTier = result.qualityTier ?? "possible";
 
   async function trackResult() {
     setTrackStatus("saving");
@@ -556,6 +612,7 @@ function ResultRow({ result, onSaved }: { result: UnifiedSearchResult; onSaved: 
           <h3 className="text-sm font-semibold leading-6 text-ink md:text-base">{result.title}</h3>
           <p className="mt-1 line-clamp-2 text-sm text-slate-600">{result.summary}</p>
           <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-600">
+            <Badge icon={qualityIcon(qualityTier)} label={qualityLabel(qualityTier)} tone={qualityTier} />
             <Badge icon={CheckCircle2} label={`Fit ${result.score}`} />
             <Badge icon={Building2} label={result.buyer} />
             <Badge icon={ShieldCheck} label={result.status} />
@@ -841,13 +898,50 @@ function Select({
   );
 }
 
-function Badge({ icon: Icon, label }: { icon: typeof Building2; label: string }) {
+type BadgeTone = "neutral" | NonNullable<UnifiedSearchResult["qualityTier"]>;
+
+function Badge({ icon: Icon, label, tone = "neutral" }: { icon: LucideIcon; label: string; tone?: BadgeTone }) {
+  const toneClass =
+    tone === "strong"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+      : tone === "possible"
+        ? "border-sky-200 bg-sky-50 text-sky-900"
+        : tone === "weak"
+          ? "border-amber-200 bg-amber-50 text-amber-900"
+          : "border-line bg-white text-slate-600";
+  const iconClass = tone === "neutral" ? "text-slate-400" : "opacity-70";
+
   return (
-    <span className="inline-flex items-center gap-1 rounded-md border border-line bg-white px-2 py-1">
-      <Icon className="size-3.5 text-slate-400" />
+    <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 ${toneClass}`}>
+      <Icon className={`size-3.5 ${iconClass}`} />
       <span>{label}</span>
     </span>
   );
+}
+
+function resultMatchesQuality(result: UnifiedSearchResult, qualityMode: QualityMode) {
+  const tier = result.qualityTier ?? "possible";
+  if (qualityMode === "broad") {
+    return true;
+  }
+
+  if (qualityMode === "strict") {
+    return tier === "strong" || result.score >= 78;
+  }
+
+  return tier !== "weak" && result.score >= 55;
+}
+
+function qualityLabel(tier: NonNullable<UnifiedSearchResult["qualityTier"]>) {
+  if (tier === "strong") return "Strong Match";
+  if (tier === "weak") return "Weak Match";
+  return "Possible Match";
+}
+
+function qualityIcon(tier: NonNullable<UnifiedSearchResult["qualityTier"]>) {
+  if (tier === "strong") return CheckCircle2;
+  if (tier === "weak") return AlertTriangle;
+  return ShieldCheck;
 }
 
 function initialSearchResponse(query: string): UnifiedSearchResponse {

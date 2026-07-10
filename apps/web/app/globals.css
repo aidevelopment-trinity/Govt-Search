@@ -1,3 +1,5 @@
+@config "../tailwind.config.cjs";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -21,4 +23,3 @@ button,
 input {
   font: inherit;
 }
-
