@@ -91,6 +91,12 @@ type OpenGovSource = {
   portalUrl: string;
   level: string;
 };
+type WorkdaySource = {
+  sourceName: string;
+  buyer: string;
+  portalUrl: string;
+  level: string;
+};
 const TEXAS_BONFIRE_SOURCES: BonfireSource[] = [
   {
     sourceName: "City of Dallas Procurement Services",
@@ -267,6 +273,21 @@ const TEXAS_OPENGOV_SOURCES: OpenGovSource[] = [
   },
 ];
 const TEXAS_OPENGOV_SOURCE_BY_NAME = new Map(TEXAS_OPENGOV_SOURCES.map((source) => [source.sourceName, source]));
+const TEXAS_WORKDAY_SOURCES: WorkdaySource[] = [
+  {
+    sourceName: "Dallas College Supplier Information",
+    buyer: "Dallas College",
+    portalUrl: "https://dallas-college.public-portal.us.workdayspend.com/",
+    level: "Education",
+  },
+  {
+    sourceName: "Port Houston Procurement",
+    buyer: "Port Houston",
+    portalUrl: "https://port-of-houston-authority.public-portal.us.workdayspend.com/",
+    level: "Adjacent",
+  },
+];
+const TEXAS_WORKDAY_SOURCE_BY_NAME = new Map(TEXAS_WORKDAY_SOURCES.map((source) => [source.sourceName, source]));
 const TENNESSEE_RFP_URL =
   "https://www.tn.gov/generalservices/procurement/central-procurement-office--cpo-/supplier-information/request-for-proposals--rfp--opportunities1.html";
 const TENNESSEE_ITB_URL =
@@ -305,6 +326,7 @@ const HANDLED_SOURCE_NAMES = new Set([
   ...TEXAS_BONFIRE_SOURCE_BY_NAME.keys(),
   ...TEXAS_IONWAVE_SOURCE_BY_NAME.keys(),
   ...TEXAS_OPENGOV_SOURCE_BY_NAME.keys(),
+  ...TEXAS_WORKDAY_SOURCE_BY_NAME.keys(),
   ...TEXAS_REFERENCE_SOURCE_NAMES,
 ]);
 const SERVER_BLOCKED_SOURCE_NAMES = new Set(["The Woodlands Township Bids"]);
@@ -326,20 +348,12 @@ const PENDING_SOURCE_MESSAGES = new Map<string, string>([
     "The official page blocks server-side fetching and points procurement through BidNetDirect. Connect BidNetDirect alerts or an approved browser collector.",
   ],
   [
-    "Dallas College Supplier Information",
-    "Dallas College now uses a Workday public portal. The app exposes GraphQL, but direct server calls need more tenant/session handling before this can be marked live.",
-  ],
-  [
     "Capital Area Council of Governments Procurement",
     "The official CAPCOG page is behind Cloudflare challenge protection from the server environment. Use alerts, email ingestion, or an approved browser collector.",
   ],
   [
     "CPS Energy Procurement and Suppliers",
     "CPS routes bid opportunities through a Supplier Management/B2GNow portal. A public listing API has not been verified yet; connect portal alerts or credentials.",
-  ],
-  [
-    "Port Houston Procurement",
-    "Port Houston now uses the same Workday public portal pattern. The public frontend is visible, but direct GraphQL calls need more tenant/session handling before this can be marked live.",
   ],
 ]);
 const SAM_SUCCESS_CACHE_MS = 15 * 60 * 1000;
@@ -360,6 +374,9 @@ const IONWAVE_FETCH_TIMEOUT_MS = 12000;
 const OPENGOV_SUCCESS_CACHE_MS = 10 * 60 * 1000;
 const OPENGOV_ERROR_CACHE_MS = 2 * 60 * 1000;
 const OPENGOV_FETCH_TIMEOUT_MS = 12000;
+const WORKDAY_SUCCESS_CACHE_MS = 10 * 60 * 1000;
+const WORKDAY_ERROR_CACHE_MS = 2 * 60 * 1000;
+const WORKDAY_FETCH_TIMEOUT_MS = 12000;
 const SEARCH_TASK_TIMEOUT_MS = 45000;
 const SEARCH_TOTAL_TIMEOUT_MS = 56000;
 const SEARCH_TASK_CONCURRENCY = 10;
@@ -378,6 +395,8 @@ const ionWaveInFlight = getGlobalMap<Promise<ConnectorSearchResult>>("__govContr
 const ionWavePageCache = getGlobalMap<{ expiresAt: number; html: string }>("__govContractFinderIonWavePageCache");
 const openGovCache = getGlobalMap<{ expiresAt: number; value: ConnectorSearchResult }>("__govContractFinderOpenGovCache");
 const openGovInFlight = getGlobalMap<Promise<ConnectorSearchResult>>("__govContractFinderOpenGovInFlight");
+const workdayCache = getGlobalMap<{ expiresAt: number; value: ConnectorSearchResult }>("__govContractFinderWorkdayCache");
+const workdayInFlight = getGlobalMap<Promise<ConnectorSearchResult>>("__govContractFinderWorkdayInFlight");
 
 export async function searchConnectedSources({ query, state, level, sources }: SearchFilters): Promise<ConnectedSearchResponse> {
   const tasks: SearchTask[] = [];
@@ -475,6 +494,14 @@ export async function searchConnectedSources({ query, state, level, sources }: S
         searchedSources.push(texasOpenGovSource.sourceName);
         removePending(pendingSources, texasOpenGovSource.sourceName);
         tasks.push({ source: texasOpenGovSource.sourceName, run: () => searchOpenGov(query, texasOpenGovSource) });
+        continue;
+      }
+
+      const texasWorkdaySource = TEXAS_WORKDAY_SOURCE_BY_NAME.get(source.source_name);
+      if (texasWorkdaySource) {
+        searchedSources.push(texasWorkdaySource.sourceName);
+        removePending(pendingSources, texasWorkdaySource.sourceName);
+        tasks.push({ source: texasWorkdaySource.sourceName, run: () => searchWorkday(query, texasWorkdaySource) });
         continue;
       }
 
@@ -1190,6 +1217,55 @@ type OpenGovProject = {
   template?: { title?: string };
   addendums?: unknown[];
 };
+type WorkdayEvent = {
+  id?: string;
+  projectId?: string;
+  title?: string;
+  bidSubmissionDeadline?: string;
+  publishedAt?: string;
+  requestType?: string;
+  state?: string;
+  translatedState?: string;
+  restricted?: boolean;
+  commodityCodes?: string[];
+  bidUrl?: string;
+};
+type WorkdayEventsResponse = {
+  data?: {
+    events?: {
+      nodes?: WorkdayEvent[];
+      totalCount?: number;
+      pageInfo?: {
+        hasNextPage?: boolean;
+        endCursor?: string;
+      };
+    };
+  };
+  errors?: Array<{ message?: string }>;
+};
+
+const WORKDAY_BID_OPPORTUNITIES_QUERY = `query BidOpportunitiesQuery($first: Int, $last: Int, $before: String, $after: String, $input: EventInput!, $sortDirection: SortDirection, $sortColumn: EventSortColumn) {
+  events(input: $input, first: $first, last: $last, before: $before, after: $after, sortColumn: $sortColumn, sortDirection: $sortDirection) {
+    nodes {
+      id
+      projectId
+      title
+      bidSubmissionDeadline
+      publishedAt
+      requestType
+      state
+      translatedState
+      restricted
+      commodityCodes
+      bidUrl
+    }
+    pageInfo {
+      endCursor
+      hasNextPage
+    }
+    totalCount
+  }
+}`;
 
 async function searchBonfire(query: string, source: BonfireSource): Promise<SearchTaskResult> {
   try {
@@ -1628,6 +1704,294 @@ function openGovProjectToResult(
     summary: [summary, department ? `Department: ${department}.` : "", deadline ? `Closes ${deadline}.` : ""].filter(Boolean).join(" "),
     nextAction: "Open the OpenGov posting, confirm the scope and required attachments, then route it for human review.",
   };
+}
+
+async function searchWorkday(query: string, source: WorkdaySource): Promise<SearchTaskResult> {
+  try {
+    const cacheKey = `workday:${source.sourceName}:${query.toLowerCase()}`;
+    const cached = workdayCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return { source: source.sourceName, ...cached.value };
+    }
+
+    const existingRequest = workdayInFlight.get(cacheKey);
+    if (existingRequest) {
+      return { source: source.sourceName, ...(await existingRequest) };
+    }
+
+    const request: Promise<ConnectorSearchResult> = fetchWorkdayEvents(source)
+      .then((events) => ({ results: parseWorkdayEvents(events, query, source) }))
+      .finally(() => {
+        workdayInFlight.delete(cacheKey);
+      });
+    workdayInFlight.set(cacheKey, request);
+
+    const value = await request;
+    workdayCache.set(cacheKey, {
+      expiresAt: Date.now() + (value.error ? WORKDAY_ERROR_CACHE_MS : WORKDAY_SUCCESS_CACHE_MS),
+      value,
+    });
+
+    return { source: source.sourceName, ...value };
+  } catch (error) {
+    return { source: source.sourceName, results: [], error: errorMessage(error) };
+  }
+}
+
+type WorkdaySession = {
+  cookieHeader: string;
+  xsrfToken: string;
+};
+
+async function fetchWorkdayEvents(source: WorkdaySource): Promise<WorkdayEvent[]> {
+  let session = await createWorkdaySession(source);
+  const events: WorkdayEvent[] = [];
+  let after: string | undefined;
+
+  for (let page = 0; page < 4; page += 1) {
+    const pageResult = await fetchWorkdayEventsPage(source, session, after);
+    session = pageResult.session;
+    events.push(...pageResult.events);
+
+    if (!pageResult.hasNextPage || !pageResult.endCursor) {
+      break;
+    }
+
+    after = pageResult.endCursor;
+  }
+
+  return events;
+}
+
+async function createWorkdaySession(source: WorkdaySource): Promise<WorkdaySession> {
+  const response = await fetchWithTimeout(
+    `${source.portalUrl}?state=PUBLISHED`,
+    {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 GovContractFinder/0.1",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      },
+      cache: "no-store",
+    },
+    WORKDAY_FETCH_TIMEOUT_MS,
+  );
+
+  if (!response.ok) {
+    throw new Error(`Workday portal returned ${response.status}`);
+  }
+
+  return workdaySessionFromHeaders(response.headers);
+}
+
+async function fetchWorkdayEventsPage(
+  source: WorkdaySource,
+  session: WorkdaySession,
+  after?: string,
+): Promise<{ events: WorkdayEvent[]; hasNextPage: boolean; endCursor?: string; session: WorkdaySession }> {
+  const response = await fetchWithTimeout(
+    new URL("/graphql", source.portalUrl).toString(),
+    {
+      method: "POST",
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 GovContractFinder/0.1",
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Cookie: session.cookieHeader,
+        "X-XSRF-Token": session.xsrfToken,
+        "X-Requested-With": "XMLHttpRequest",
+        operationName: "BidOpportunitiesQuery",
+        operationType: "query",
+        Referer: `${source.portalUrl}?state=PUBLISHED`,
+      },
+      body: JSON.stringify({
+        operationName: "BidOpportunitiesQuery",
+        variables: {
+          input: {
+            search: "",
+            commodityCodes: [],
+            requestType: [],
+            state: ["PUBLISHED"],
+            bidSubmissionDeadline: null,
+            closedAt: null,
+            publishedAt: null,
+            questionDeadline: null,
+            rsvpDeadline: null,
+            projectIds: [],
+            eventId: "",
+            restricted: null,
+          },
+          first: 50,
+          after,
+          sortColumn: "publishedAt",
+          sortDirection: "desc",
+        },
+        query: WORKDAY_BID_OPPORTUNITIES_QUERY,
+      }),
+      cache: "no-store",
+    },
+    WORKDAY_FETCH_TIMEOUT_MS,
+  );
+
+  const nextSession = workdaySessionFromHeaders(response.headers, session);
+
+  if (!response.ok) {
+    throw new Error(`Workday GraphQL returned ${response.status}`);
+  }
+
+  const data = (await response.json()) as WorkdayEventsResponse;
+  if (data.errors?.length) {
+    throw new Error(data.errors.map((error) => error.message).filter(Boolean).join("; ") || "Workday GraphQL returned an error");
+  }
+
+  return {
+    events: data.data?.events?.nodes ?? [],
+    hasNextPage: Boolean(data.data?.events?.pageInfo?.hasNextPage),
+    endCursor: data.data?.events?.pageInfo?.endCursor,
+    session: nextSession,
+  };
+}
+
+function parseWorkdayEvents(events: WorkdayEvent[], query: string, source: WorkdaySource): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+
+  return events
+    .map((event, index) => workdayEventToResult(event, terms, index, source))
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+function workdayEventToResult(
+  event: WorkdayEvent,
+  terms: string[],
+  index: number,
+  source: WorkdaySource,
+): UnifiedSearchResult | undefined {
+  const title = event.title?.trim();
+  if (!title || event.state !== "PUBLISHED") {
+    return undefined;
+  }
+
+  const deadline = formatIsoDateTime(event.bidSubmissionDeadline, "America/Chicago");
+  const postedDate = formatIsoDateTime(event.publishedAt, "America/Chicago");
+  const requestType = event.requestType?.trim();
+  const status = event.translatedState?.trim() || "Open";
+  const solicitationId = title.match(/\b(?:RFP|RFQ|RFB|IFB|ITB|RFI|BID)[A-Z0-9-]*\b/i)?.[0] ?? event.id;
+  const commodityCodes = event.commodityCodes?.filter(Boolean) ?? [];
+  const haystack = [title, requestType, status, solicitationId, event.projectId, commodityCodes.join(" "), source.buyer]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const score = scoreOpportunity(haystack, terms, 76 - Math.min(index, 30));
+
+  if (terms.length > 0 && score <= 0) {
+    return undefined;
+  }
+
+  if (isPastDeadline(deadline)) {
+    return undefined;
+  }
+
+  const detailUrl = event.id ? new URL(`/bid-details/${event.id}`, source.portalUrl).toString() : source.portalUrl;
+  const documents = [
+    requestType ? `Request type: ${requestType}` : undefined,
+    event.projectId ? `Project ID: ${event.projectId}` : undefined,
+    ...commodityCodes.slice(0, 8),
+    event.bidUrl ? `Workday public bid URL: ${event.bidUrl}` : undefined,
+  ].filter((item): item is string => Boolean(item));
+
+  return {
+    id: `workday:${source.sourceName}:${event.id ?? title}`,
+    resultType: "opportunity",
+    title,
+    buyer: source.buyer,
+    sourceName: source.sourceName,
+    sourceLevel: source.level,
+    sourceState: "TX",
+    sourceType: "Workday Strategic Sourcing public portal",
+    url: detailUrl,
+    portalUrl: source.portalUrl,
+    score,
+    status: event.restricted ? `${status} / restricted` : status,
+    solicitationId,
+    deadline,
+    postedDate,
+    documents,
+    submissionInstructions:
+      "Open the Workday public bid detail, register or sign in if required, download the solicitation documents and addenda, then submit through Workday before the deadline.",
+    applicationChecklist: applicationChecklist({
+      hasSolicitationId: Boolean(solicitationId),
+      hasDeadline: Boolean(deadline),
+      hasDocuments: documents.length > 0,
+      hasContact: false,
+    }),
+    summary: [
+      requestType ? `${requestType} opportunity.` : "",
+      event.projectId ? `Project ${event.projectId}.` : "",
+      postedDate ? `Published ${postedDate}.` : "",
+      deadline ? `Closes ${deadline}.` : "",
+      commodityCodes.length ? `Commodity codes: ${commodityCodes.slice(0, 4).join(", ")}.` : "",
+    ]
+      .filter(Boolean)
+      .join(" "),
+    nextAction: "Open the Workday bid detail, confirm fit and required attachments, then route it for human review.",
+  };
+}
+
+function workdaySessionFromHeaders(headers: Headers, previous?: WorkdaySession): WorkdaySession {
+  const cookieValues = new Map<string, string>();
+
+  if (previous) {
+    for (const cookie of previous.cookieHeader.split(";")) {
+      const [name, ...valueParts] = cookie.trim().split("=");
+      if (name && valueParts.length > 0) {
+        cookieValues.set(name, valueParts.join("="));
+      }
+    }
+  }
+
+  for (const setCookie of setCookieHeaders(headers)) {
+    const pair = setCookie.split(";")[0];
+    const separatorIndex = pair.indexOf("=");
+    if (separatorIndex <= 0) {
+      continue;
+    }
+
+    const name = pair.slice(0, separatorIndex);
+    const value = pair.slice(separatorIndex + 1);
+    if (name.startsWith("_pp_")) {
+      cookieValues.set(name, value);
+    }
+  }
+
+  const xsrfToken = cookieValues.get("_pp_xsrf");
+  const sessionCookie = cookieValues.get("_pp_session");
+  if (!xsrfToken || !sessionCookie) {
+    throw new Error("Workday public session cookies were not issued");
+  }
+
+  return {
+    xsrfToken,
+    cookieHeader: Array.from(cookieValues.entries())
+      .map(([name, value]) => `${name}=${value}`)
+      .join("; "),
+  };
+}
+
+function setCookieHeaders(headers: Headers) {
+  const headersWithGetSetCookie = headers as Headers & { getSetCookie?: () => string[] };
+  const direct = headersWithGetSetCookie.getSetCookie?.();
+  if (direct?.length) {
+    return direct;
+  }
+
+  const combined = headers.get("set-cookie");
+  if (!combined) {
+    return [];
+  }
+
+  return combined.split(/,\s*(?=[A-Za-z0-9_-]+=)/);
 }
 
 type AustinSolicitationOptions = {
