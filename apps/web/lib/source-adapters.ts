@@ -318,6 +318,10 @@ const TENNESSEE_ITB_URL =
 const TEXAS_DIR_SOLICITATION_SCHEDULE_URL =
   "https://dir.texas.gov/it-solutions-and-services/selling-through-dir/schedule-of-solicitation-opportunities";
 const BUYBOARD_PROPOSAL_INVITATIONS_URL = "https://www.buyboard.com/vendor/proposal-invitations";
+const CHOICE_PARTNERS_CURRENT_RFPS_URL = "https://www.choicepartners.org/current-rfps";
+const CHOICE_PARTNERS_UPCOMING_CONTRACTS_URL = "https://www.choicepartners.org/upcoming-contracts";
+const SOURCEWELL_SOLICITATIONS_URL = "https://www.sourcewell-mn.gov/solicitations";
+const NASPO_VALUEPOINT_SOLICITATIONS_URL = "https://naspovaluepoint.org/solicitation-status/";
 const OMNIA_SOLICITATIONS_URL = "https://www.omniapartners.com/get-started/solicitations";
 const EQUALIS_SOLICITATIONS_URL = "https://equalisgroup.org/current-solicitations/";
 const THE_WOODLANDS_BIDS_URL =
@@ -339,6 +343,10 @@ const HANDLED_SOURCE_NAMES = new Set([
   "The Woodlands Township Bids",
   "Texas DIR Schedule of Solicitation Opportunities",
   "BuyBoard Current Proposal Invitations",
+  "Choice Partners Current RFPs",
+  "Choice Partners Upcoming Contracts",
+  "Sourcewell Open Solicitations",
+  "NASPO ValuePoint Current Solicitations",
   "OMNIA Partners Current Solicitations",
   "Equalis Group Current Solicitations",
   "City of Austin Purchasing",
@@ -601,6 +609,14 @@ function texasCustomSourceTask(sourceName: string, query: string): (() => Promis
       return () => searchTexasDirSolicitationSchedule(query);
     case "BuyBoard Current Proposal Invitations":
       return () => searchBuyBoardProposalInvitations(query);
+    case "Choice Partners Current RFPs":
+      return () => searchChoicePartnersCurrentRfps(query);
+    case "Choice Partners Upcoming Contracts":
+      return () => searchChoicePartnersUpcomingContracts(query);
+    case "Sourcewell Open Solicitations":
+      return () => searchSourcewellOpenSolicitations(query);
+    case "NASPO ValuePoint Current Solicitations":
+      return () => searchNaspoValuePointSolicitations(query);
     case "OMNIA Partners Current Solicitations":
       return () => searchOmniaCurrentSolicitations(query);
     case "Equalis Group Current Solicitations":
@@ -870,6 +886,299 @@ function parseBuyBoardProposalInvitations(html: string, query: string): UnifiedS
         }),
         summary: `${proposalName}. Proposal due ${deadline}.`,
         nextAction: "Open the proposal PDF, review forms/addenda, and decide whether to add this cooperative category to the pursuit tracker.",
+      };
+    })
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+async function searchChoicePartnersCurrentRfps(query: string): Promise<SearchTaskResult> {
+  const source = "Choice Partners Current RFPs";
+  try {
+    const response = await fetchPublicPage(CHOICE_PARTNERS_CURRENT_RFPS_URL);
+    if (!response.ok) {
+      return { source, results: [], error: `Choice Partners current RFPs returned ${response.status}` };
+    }
+
+    return { source, results: parseChoicePartnersCurrentRfps(await response.text(), query) };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+function parseChoicePartnersCurrentRfps(html: string, query: string): UnifiedSearchResult[] {
+  if (/No Current Solicitations Available at This Time/i.test(htmlToText(html))) {
+    return [];
+  }
+
+  const terms = conceptTerms(query);
+  const links = dedupeDocumentLinks(extractAnchorLinks(html, CHOICE_PARTNERS_CURRENT_RFPS_URL)).filter((link) =>
+    hasOpportunityLanguage(`${link.label} ${link.url}`),
+  );
+
+  return links
+    .map((link, index): UnifiedSearchResult | undefined => {
+      const haystack = [link.label, link.url, "Choice Partners Harris County Department of Education cooperative RFP"].join(" ").toLowerCase();
+      const score = scoreOpportunity(haystack, terms, 58 - Math.min(index, 20));
+
+      if (terms.length > 0 && score <= 0) {
+        return undefined;
+      }
+
+      return {
+        id: `choice-current:${link.url}`,
+        resultType: "opportunity",
+        title: link.label || "Choice Partners current RFP",
+        buyer: "Choice Partners / Harris County Department of Education",
+        sourceName: "Choice Partners Current RFPs",
+        sourceLevel: "Adjacent",
+        sourceState: "TX",
+        sourceType: "Public cooperative RFP page",
+        url: link.url,
+        portalUrl: CHOICE_PARTNERS_CURRENT_RFPS_URL,
+        score,
+        status: "Current public RFP link",
+        documents: [link.label],
+        documentLinks: [link],
+        submissionInstructions:
+          "Open the Choice Partners RFP link, review the posted documents and addenda, then follow the e-procurement submission instructions.",
+        applicationChecklist: applicationChecklist({ hasSolicitationId: false, hasDeadline: false, hasDocuments: true, hasContact: false }),
+        summary: "Matching current RFP link found on the Choice Partners page.",
+        nextAction: "Open the Choice Partners RFP link, capture the deadline and required forms, then decide whether to pursue.",
+      };
+    })
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+async function searchChoicePartnersUpcomingContracts(query: string): Promise<SearchTaskResult> {
+  const source = "Choice Partners Upcoming Contracts";
+  try {
+    const response = await fetchPublicPage(CHOICE_PARTNERS_UPCOMING_CONTRACTS_URL);
+    if (!response.ok) {
+      return { source, results: [], error: `Choice Partners upcoming contracts returned ${response.status}` };
+    }
+
+    return { source, results: parseChoicePartnersUpcomingContracts(await response.text(), query) };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+function parseChoicePartnersUpcomingContracts(html: string, query: string): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+  const rows = Array.from(html.matchAll(/<tr[^>]*class=(["'])tblrows[12]\1[^>]*>([\s\S]*?)<\/tr>/gi));
+
+  return rows
+    .map((row, index): UnifiedSearchResult | undefined => {
+      const rowHtml = row[2].replace(/<!--[\s\S]*?-->/g, "");
+      const cells = Array.from(rowHtml.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)).map((cell) => htmlToText(cell[1]));
+      const title = cells[0];
+      const estimatedAdvertiseDate = cells[1];
+      const haystack = [title, estimatedAdvertiseDate, "Choice Partners upcoming cooperative contract RFP schedule"].join(" ").toLowerCase();
+      const score = scoreOpportunity(haystack, terms, 50 - Math.min(index, 20));
+
+      if (!title || (terms.length > 0 && score <= 0)) {
+        return undefined;
+      }
+
+      if (estimatedAdvertiseDate && isPastDeadline(estimatedAdvertiseDate)) {
+        return undefined;
+      }
+
+      return {
+        id: `choice-upcoming:${title}:${estimatedAdvertiseDate}`,
+        resultType: "opportunity",
+        title,
+        buyer: "Choice Partners / Harris County Department of Education",
+        sourceName: "Choice Partners Upcoming Contracts",
+        sourceLevel: "Adjacent",
+        sourceState: "TX",
+        sourceType: "Public cooperative contract schedule",
+        url: CHOICE_PARTNERS_UPCOMING_CONTRACTS_URL,
+        portalUrl: CHOICE_PARTNERS_UPCOMING_CONTRACTS_URL,
+        score,
+        status: "Upcoming cooperative contract category",
+        postedDate: estimatedAdvertiseDate,
+        documents: estimatedAdvertiseDate ? [`Estimated advertise date: ${estimatedAdvertiseDate}`] : ["Upcoming contract schedule"],
+        documentLinks: [{ label: "Choice Partners upcoming contracts schedule", url: CHOICE_PARTNERS_UPCOMING_CONTRACTS_URL }],
+        submissionInstructions:
+          "This is a planning item, not an active solicitation. Monitor the Choice Partners current RFP page near the estimated advertise date.",
+        applicationChecklist: applicationChecklist({ hasSolicitationId: false, hasDeadline: false, hasDocuments: true, hasContact: false }),
+        summary: estimatedAdvertiseDate ? `Estimated advertise date: ${estimatedAdvertiseDate}.` : "Upcoming cooperative contract category.",
+        nextAction: "Add this to the pipeline calendar and re-check Choice Partners current RFPs near the estimated advertise date.",
+      };
+    })
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+async function searchSourcewellOpenSolicitations(query: string): Promise<SearchTaskResult> {
+  const source = "Sourcewell Open Solicitations";
+  try {
+    const response = await fetchPublicPage(SOURCEWELL_SOLICITATIONS_URL);
+    if (!response.ok) {
+      return { source, results: [], error: `Sourcewell solicitations returned ${response.status}` };
+    }
+
+    return { source, results: parseSourcewellOpenSolicitations(await response.text(), query) };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+function parseSourcewellOpenSolicitations(html: string, query: string): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+  const openStart = html.search(/<h2[^>]*>\s*Open\s*<\/h2>/i);
+  const pendingStart = html.search(/<h2[^>]*>\s*Pending\s*<\/h2>/i);
+  const openSection = openStart >= 0 ? html.slice(openStart, pendingStart > openStart ? pendingStart : undefined) : html;
+  const rows = Array.from(
+    openSection.matchAll(
+      /<div class="row tr[^"]*"[^>]*>\s*<div class="col-xs-12 col-sm-8 td">\s*<a href=(["'])(.*?)\1[^>]*>([\s\S]*?)<\/a>\s*<\/div>\s*<div class="col-xs-12 col-sm-4 td">([\s\S]*?)<\/div>\s*<\/div>/gi,
+    ),
+  );
+
+  return rows
+    .map((row, index): UnifiedSearchResult | undefined => {
+      const title = cleanText(row[3]);
+      const url = safeAbsoluteUrl(decodeHtml(row[2]), SOURCEWELL_SOLICITATIONS_URL) ?? SOURCEWELL_SOLICITATIONS_URL;
+      const deadline = htmlToText(row[4]);
+      const haystack = [title, deadline, "Sourcewell national cooperative RFP solicitation public procurement"].join(" ").toLowerCase();
+      const score = scoreOpportunity(haystack, terms, 68 - Math.min(index, 25));
+
+      if (!title || (terms.length > 0 && score <= 0)) {
+        return undefined;
+      }
+
+      if (isPastDeadline(deadline)) {
+        return undefined;
+      }
+
+      return {
+        id: `sourcewell:${url}`,
+        resultType: "opportunity",
+        title,
+        buyer: "Sourcewell",
+        sourceName: "Sourcewell Open Solicitations",
+        sourceLevel: "Adjacent",
+        sourceState: "US",
+        sourceType: "Public cooperative solicitation list",
+        url,
+        portalUrl: SOURCEWELL_SOLICITATIONS_URL,
+        score,
+        status: "Open public Sourcewell solicitation",
+        deadline,
+        documents: ["Sourcewell solicitation detail page"],
+        documentLinks: [
+          { label: "Sourcewell solicitation detail", url },
+          { label: "Sourcewell procurement portal", url: "https://proportal.sourcewell-mn.gov/Module/Tenders/en" },
+        ],
+        submissionInstructions:
+          "Open the Sourcewell solicitation detail and procurement portal, download the RFP/addenda, and submit through the Sourcewell portal before the due date.",
+        applicationChecklist: applicationChecklist({ hasSolicitationId: false, hasDeadline: Boolean(deadline), hasDocuments: true, hasContact: false }),
+        summary: deadline ? `Response due ${deadline}.` : "Open Sourcewell solicitation.",
+        nextAction: "Open the Sourcewell detail page, confirm scope and portal requirements, then add it to the tracker if the category fits.",
+      };
+    })
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+async function searchNaspoValuePointSolicitations(query: string): Promise<SearchTaskResult> {
+  const source = "NASPO ValuePoint Current Solicitations";
+  try {
+    const response = await fetchPublicPage(NASPO_VALUEPOINT_SOLICITATIONS_URL);
+    if (!response.ok) {
+      return { source, results: [], error: `NASPO ValuePoint solicitations returned ${response.status}` };
+    }
+
+    return { source, results: parseNaspoValuePointSolicitations(await response.text(), query) };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+function parseNaspoValuePointSolicitations(html: string, query: string): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+  const publishedStart = html.search(/Published Solicitations/i);
+  const activeStart = html.search(/Active Solicitations/i);
+  const publishedSection = publishedStart >= 0 ? html.slice(publishedStart, activeStart > publishedStart ? activeStart : undefined) : html;
+  const blocks = publishedSection
+    .split(/<div class="row solicitations-row solicitation-upcoming">/i)
+    .slice(1)
+    .map((block) => block.slice(0, block.search(/<div class="row solicitations-row solicitation-upcoming">/i) > 0 ? block.search(/<div class="row solicitations-row solicitation-upcoming">/i) : undefined));
+
+  return blocks
+    .map((block, index): UnifiedSearchResult | undefined => {
+      const title = cleanText(block.match(/<h3>([\s\S]*?)<\/h3>/i)?.[1] ?? "");
+      const leadState = htmlFieldFromSpan(block, "Lead State");
+      const contact = htmlFieldFromSpan(block, "Contact Info");
+      const solicitationId = htmlFieldFromSpan(block, "Solicitation Number");
+      const releaseDate = htmlFieldFromSpan(block, "Release Date");
+      const deadline = htmlFieldFromSpan(block, "Close Date");
+      const documentLinks = extractAnchorLinks(block, NASPO_VALUEPOINT_SOLICITATIONS_URL).filter((link) =>
+        /download|rfp|rfi|solicitation|event|bids|procurement/i.test(`${link.label} ${link.url}`),
+      );
+      const description = htmlToText(block.match(/<div class="col-xs-12 col-md-6 offset-md-1">([\s\S]*?)<\/div>/i)?.[1] ?? "");
+      const haystack = [
+        title,
+        leadState,
+        contact,
+        solicitationId,
+        releaseDate,
+        deadline,
+        description,
+        documentLinks.map((link) => link.label).join(" "),
+        "NASPO ValuePoint cooperative procurement solicitation",
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      const score = scoreOpportunity(haystack, terms, 74 - Math.min(index, 25));
+
+      if (!title || (terms.length > 0 && score <= 0)) {
+        return undefined;
+      }
+
+      if (isPastDeadline(deadline)) {
+        return undefined;
+      }
+
+      return {
+        id: `naspo:${solicitationId || title}`,
+        resultType: "opportunity",
+        title,
+        buyer: leadState ? `NASPO ValuePoint lead state: ${leadState}` : "NASPO ValuePoint",
+        sourceName: "NASPO ValuePoint Current Solicitations",
+        sourceLevel: "Adjacent",
+        sourceState: "US",
+        sourceType: "Public cooperative solicitation status page",
+        url: documentLinks[0]?.url ?? NASPO_VALUEPOINT_SOLICITATIONS_URL,
+        portalUrl: NASPO_VALUEPOINT_SOLICITATIONS_URL,
+        score,
+        status: "Published public NASPO ValuePoint solicitation",
+        solicitationId,
+        deadline,
+        postedDate: releaseDate,
+        contact,
+        documents: [
+          leadState ? `Lead state: ${leadState}` : undefined,
+          releaseDate ? `Release date: ${releaseDate}` : undefined,
+          ...documentLinks.map((link) => link.label),
+        ].filter((item): item is string => Boolean(item)),
+        documentLinks: documentLinks.length ? documentLinks : [{ label: "NASPO solicitation status page", url: NASPO_VALUEPOINT_SOLICITATIONS_URL }],
+        submissionInstructions:
+          "Open the NASPO lead-state solicitation link, download the RFP/RFI and addenda, then follow the lead state's submission portal instructions.",
+        applicationChecklist: applicationChecklist({
+          hasSolicitationId: Boolean(solicitationId),
+          hasDeadline: Boolean(deadline),
+          hasDocuments: documentLinks.length > 0,
+          hasContact: Boolean(contact),
+        }),
+        summary: [leadState ? `Lead state: ${leadState}.` : "", deadline ? `Close date ${deadline}.` : "", description]
+          .filter(Boolean)
+          .join(" "),
+        nextAction: "Open the lead-state link, confirm documents and submission rules, then add it to the tracker if the scope fits.",
       };
     })
     .filter((result): result is UnifiedSearchResult => Boolean(result))
@@ -3995,6 +4304,12 @@ function nearestPreviousHeading(html: string, index: number) {
 function fieldFromText(text: string, pattern: RegExp) {
   const value = text.match(pattern)?.[1];
   return value ? cleanText(value.replace(/\s+/g, " ").replace(/[.;]\s*$/, "")) : undefined;
+}
+
+function htmlFieldFromSpan(html: string, label: string) {
+  const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const value = html.match(new RegExp(`<span>${escapedLabel}:\\s*([\\s\\S]*?)<\\/span>`, "i"))?.[1];
+  return value ? htmlToText(value) : undefined;
 }
 
 function extractAnchorLinks(html: string, baseUrl: string): OpportunityDocumentLink[] {
