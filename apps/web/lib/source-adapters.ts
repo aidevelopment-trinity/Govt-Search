@@ -77,6 +77,7 @@ type BonfireSource = {
   buyer: string;
   portalUrl: string;
   level: string;
+  state?: string;
 };
 type IonWaveSource = {
   sourceName: string;
@@ -189,6 +190,13 @@ const TEXAS_BONFIRE_SOURCES: BonfireSource[] = [
     buyer: "Houston METRO",
     portalUrl: "https://ridemetro.bonfirehub.com/portal/?tab=openOpportunities",
     level: "Adjacent",
+  },
+  {
+    sourceName: "Broward County Purchasing",
+    buyer: "Broward County",
+    portalUrl: "https://broward.bonfirehub.com/portal",
+    level: "Local",
+    state: "FL",
   },
 ];
 const TEXAS_BONFIRE_SOURCE_BY_NAME = new Map(TEXAS_BONFIRE_SOURCES.map((source) => [source.sourceName, source]));
@@ -338,6 +346,15 @@ const VIA_SOLICITATIONS_URL = "https://via.sbecompliance.com/FrontEnd/ProposalSe
 const HOUSTON_METRO_PROCUREMENT_URL = "https://www.ridemetro.org/about/business-to-business/procurement-opportunities";
 const NTTA_MARKETPLACE_URL = "https://www.nttamarketplace.org/bso/view/search/external/advancedSearchBid.xhtml?openBids=true";
 const AUSTIN_ENERGY_RFPS_URL = "https://austinenergy.com/contractors/working-with-austin-energy/rfps";
+const ARAPAHOE_BIDNET_PORTAL_URL = "https://www.bidnetdirect.com/colorado/arapahoe-county";
+const ARAPAHOE_BIDNET_OPEN_BIDS_URL =
+  "https://www.bidnetdirect.com/colorado/arapahoe-county/solicitations/open-bids?selectedContent=BUYER";
+const BOULDER_COUNTY_BIDS_URL = "https://bouldercounty.gov/government/budget-and-finance/procurement/bid-opportunities/";
+const BOULDER_COUNTY_PROCUREMENT_PORTAL_URL = "https://bouldercounty.bonfirehub.com/portal";
+const DENVER_CURRENT_BIDS_URL = "https://www.denvergov.org/Business/Contract-Administration/Current";
+const ADDISON_BIDNET_PORTAL_URL = "https://www.bidnetdirect.com/texas/townofaddison";
+const ADDISON_BIDNET_OPEN_BIDS_URL =
+  "https://www.bidnetdirect.com/texas/townofaddison/solicitations/open-bids?selectedContent=BUYER";
 const HANDLED_SOURCE_NAMES = new Set([
   "SAM.gov Contract Opportunities",
   "Texas Electronic State Business Daily",
@@ -370,12 +387,9 @@ const HANDLED_SOURCE_NAMES = new Set([
   ...TEXAS_WORKDAY_SOURCE_BY_NAME.keys(),
   ...TEXAS_REFERENCE_SOURCE_NAMES,
 ]);
-const SERVER_BLOCKED_SOURCE_NAMES = new Set(["The Woodlands Township Bids", "Bexar County Purchasing", "Equalis Group Current Solicitations"]);
+const REFERENCE_ONLY_SOURCE_NAMES = new Set(["Acquisition.gov"]);
+const SERVER_BLOCKED_SOURCE_NAMES = new Set(["The Woodlands Township Bids", "Equalis Group Current Solicitations"]);
 const PENDING_SOURCE_MESSAGES = new Map<string, string>([
-  [
-    "Bexar County Purchasing",
-    "The official CivicEngage page is public and currently shows no open bid postings in browser checks, but Vercel/server-side fetching is blocked. Use email alerts, PublicPurchase monitoring, or an approved browser collector before marking this source live.",
-  ],
   [
     "City of Houston Procurement",
     "The official City of Houston page sends open solicitations through Beacon, which blocks server-side access with AWS WAF/CAPTCHA. Use Beacon alerts, a vendor account, or an approved browser collector.",
@@ -386,7 +400,7 @@ const PENDING_SOURCE_MESSAGES = new Map<string, string>([
   ],
   [
     "City of Allen Purchasing",
-    "PublicPurchase shows the agency page, but open bids require login. Connect a vendor account or email-alert ingestion before marking this source live.",
+    "Official eBid is IonWave and has public rows in a browser/curl, but Node/server fetch receives an IonWave/Cloudflare 429 challenge. Use an approved browser collector, vendor alerts, or an official API/feed before marking this source live.",
   ],
   [
     "City of Addison Purchasing",
@@ -452,6 +466,7 @@ export async function searchConnectedSources({ query, state, level, sources }: S
   const searchedSources: string[] = [];
   const pendingSources = sources
     .filter((source) => matchesFilter({ sourceState: source.state, sourceLevel: source.level, state, level }))
+    .filter((source) => !REFERENCE_ONLY_SOURCE_NAMES.has(source.source_name))
     .map((source) => source.source_name);
   const samConfigured = Boolean(process.env.SAM_API_KEY);
 
@@ -485,6 +500,10 @@ export async function searchConnectedSources({ query, state, level, sources }: S
   }
 
   for (const source of sources) {
+    if (REFERENCE_ONLY_SOURCE_NAMES.has(source.source_name)) {
+      continue;
+    }
+
     if (TEXAS_REFERENCE_SOURCE_NAMES.has(source.source_name)) {
       removePending(pendingSources, source.source_name);
       continue;
@@ -642,9 +661,343 @@ function texasCustomSourceTask(sourceName: string, query: string): (() => Promis
       return () => searchAustinEnergyRfps(query);
     case "San Antonio Water System Purchasing":
       return () => searchSawsProcurement(query);
+    case "Arapahoe County Purchasing":
+      return () => searchArapahoeCountyPurchasing(query);
+    case "Boulder County Purchasing":
+      return () => searchBoulderCountyPurchasing(query);
+    case "City and County of Denver Bidding Opportunities":
+      return () => searchDenverCurrentBids(query);
+    case "City of Addison Purchasing":
+      return () => searchAddisonPurchasing(query);
     default:
       return undefined;
   }
+}
+
+async function searchAddisonPurchasing(query: string): Promise<SearchTaskResult> {
+  const source = "City of Addison Purchasing";
+  try {
+    const response = await fetchPublicPage(ADDISON_BIDNET_OPEN_BIDS_URL);
+    if (!response.ok) {
+      return { source, results: [], error: `BidNet Direct returned ${response.status}` };
+    }
+
+    return {
+      source,
+      results: parseBidNetAgencySolicitations(await response.text(), query, {
+        sourceName: source,
+        buyer: "Town of Addison",
+        sourceLevel: "Local",
+        sourceState: "TX",
+        sourceType: "BidNet Direct public opportunity page",
+        portalUrl: ADDISON_BIDNET_PORTAL_URL,
+        openBidsUrl: ADDISON_BIDNET_OPEN_BIDS_URL,
+        submissionInstructions:
+          "Open the BidNet Direct posting, download the solicitation packet and addenda, confirm whether electronic or sealed submission is required, and submit before the closing date.",
+      }),
+    };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+async function searchDenverCurrentBids(query: string): Promise<SearchTaskResult> {
+  const source = "City and County of Denver Bidding Opportunities";
+  try {
+    const response = await fetchPublicPage(DENVER_CURRENT_BIDS_URL);
+    if (!response.ok) {
+      return { source, results: [], error: `Denver current bids page returned ${response.status}` };
+    }
+
+    return { source, results: parseDenverCurrentBids(await response.text(), query) };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+function parseDenverCurrentBids(html: string, query: string): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+  const rows = Array.from(html.matchAll(/<div[^>]*class=["'][^"']*\blist-item-container\b[^"']*["'][^>]*>([\s\S]*?)<\/article>\s*<\/div>/gi));
+
+  return rows
+    .map((row, index) => denverCurrentBidToResult(row[1], terms, index))
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+function denverCurrentBidToResult(rowHtml: string, terms: string[], index: number): UnifiedSearchResult | undefined {
+  const linkMatch = rowHtml.match(/<a\b[^>]*href=(["'])(.*?)\1[^>]*>([\s\S]*?)<\/a>/i);
+  const linkHtml = linkMatch?.[3] ?? rowHtml;
+  const title = cleanText(linkHtml.match(/<h2[^>]*class=["'][^"']*\blist-item-title\b[^"']*["'][^>]*>([\s\S]*?)<\/h2>/i)?.[1] ?? "");
+  const url = safeAbsoluteUrl(decodeHtml(linkMatch?.[2] ?? ""), DENVER_CURRENT_BIDS_URL) ?? DENVER_CURRENT_BIDS_URL;
+  const solicitationId = fieldFromText(htmlToText(linkHtml), /Reference number:\s*([^]+?)(?=\s+Closing date|\s+Status:|$)/i);
+  const deadline = fieldFromText(htmlToText(linkHtml), /Closing date\s*([^]+?)(?=\s+Status:|$)/i);
+  const status = fieldFromText(htmlToText(linkHtml), /Status:\s*([A-Za-z ]+?)(?=$)/i) ?? "Open";
+  const paragraphs = Array.from(linkHtml.matchAll(/<p\b(?![^>]*class=["'][^"']*(?:reference-number|applications-closing|status-list)[^"']*["'])[^>]*>([\s\S]*?)<\/p>/gi))
+    .map((paragraph) => cleanText(paragraph[1]))
+    .filter(Boolean);
+  const description = paragraphs.join(" ");
+  const haystack = [title, solicitationId, deadline, status, description, "City and County of Denver bid rfq rfp contract"]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const score = scoreOpportunity(haystack, terms, 74 - Math.min(index, 25));
+
+  if (!title || (terms.length > 0 && score <= 0)) {
+    return undefined;
+  }
+
+  if (isPastDeadline(deadline)) {
+    return undefined;
+  }
+
+  return {
+    id: `denver-current:${solicitationId ?? title}`,
+    resultType: "opportunity",
+    title,
+    buyer: "City and County of Denver",
+    sourceName: "City and County of Denver Bidding Opportunities",
+    sourceLevel: "Local",
+    sourceState: "CO",
+    sourceType: "Official Denver current bidding opportunities page",
+    url,
+    portalUrl: DENVER_CURRENT_BIDS_URL,
+    score,
+    status,
+    solicitationId,
+    deadline,
+    documents: ["Denver detail page may include plan holders, bid documents, addenda, and submission details."],
+    documentLinks: [{ label: "Denver opportunity detail and documents", url }],
+    submissionInstructions:
+      "Open the Denver opportunity detail page, review the official bid/RFQ documents and addenda, then follow the listed submission method and deadline.",
+    applicationChecklist: applicationChecklist({
+      hasSolicitationId: Boolean(solicitationId),
+      hasDeadline: Boolean(deadline),
+      hasDocuments: true,
+      hasContact: false,
+    }),
+    summary: [description, solicitationId ? `Reference: ${solicitationId}.` : "", deadline ? `Closes ${deadline}.` : ""].filter(Boolean).join(" "),
+    nextAction: "Open the Denver detail page, download the official documents and addenda, then decide whether to save it for drafting.",
+  };
+}
+
+async function searchBoulderCountyPurchasing(query: string): Promise<SearchTaskResult> {
+  const source = "Boulder County Purchasing";
+  try {
+    const response = await fetchPublicPage(BOULDER_COUNTY_BIDS_URL);
+    if (!response.ok) {
+      return { source, results: [], error: `Boulder County bids page returned ${response.status}` };
+    }
+
+    return { source, results: parseBoulderCountyBids(await response.text(), query) };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+function parseBoulderCountyBids(html: string, query: string): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+  const currentStart = html.search(/<h2[^>]*>\s*Current Solicitations Chart\s*<\/h2>/i);
+  const currentEnd = html.search(/<h2[^>]*>\s*Notices of Final Settlement\s*<\/h2>/i);
+  const currentSection = currentStart >= 0 ? html.slice(currentStart, currentEnd > currentStart ? currentEnd : undefined) : html;
+  const rows = Array.from(currentSection.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi));
+
+  return rows
+    .map((row, index) => boulderCountyRowToResult(row[1], terms, index))
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+function boulderCountyRowToResult(rowHtml: string, terms: string[], index: number): UnifiedSearchResult | undefined {
+  const cells = Array.from(rowHtml.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)).map((cell) => cell[1]);
+  if (cells.length < 4) {
+    return undefined;
+  }
+
+  const deadline = cleanText(cells[0]);
+  const solicitationId = cleanText(cells[1]);
+  const titleLink = cells[2].match(/<a\b[^>]*href=(["'])(.*?)\1[^>]*>([\s\S]*?)<\/a>/i);
+  const title = cleanText(titleLink?.[3] ?? cells[2]);
+  const department = cleanText(cells[3]);
+  const url = stableBonfireOpportunityUrl(safeAbsoluteUrl(decodeHtml(titleLink?.[2] ?? ""), BOULDER_COUNTY_BIDS_URL)) ?? BOULDER_COUNTY_BIDS_URL;
+  const haystack = [title, solicitationId, department, "Boulder County bid proposal solicitation Bonfire"]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const score = scoreOpportunity(haystack, terms, 74 - Math.min(index, 25));
+
+  if (!title || !solicitationId || (terms.length > 0 && score <= 0)) {
+    return undefined;
+  }
+
+  if (isPastDeadline(deadline)) {
+    return undefined;
+  }
+
+  return {
+    id: `boulder-county:${solicitationId}:${title}`,
+    resultType: "opportunity",
+    title,
+    buyer: "Boulder County",
+    sourceName: "Boulder County Purchasing",
+    sourceLevel: "Local",
+    sourceState: "CO",
+    sourceType: "Official county solicitation chart with Bonfire portal links",
+    url,
+    portalUrl: BOULDER_COUNTY_PROCUREMENT_PORTAL_URL,
+    score,
+    status: "Open public solicitation",
+    solicitationId,
+    deadline,
+    documents: [department ? `Department: ${department}` : undefined].filter((value): value is string => Boolean(value)),
+    documentLinks: [{ label: "Boulder County Bonfire opportunity and documents", url }],
+    submissionInstructions:
+      "Open the Boulder County Bonfire opportunity, review the official files and addenda, register or sign in if submission is required, and submit through the procurement portal before the due date.",
+    applicationChecklist: applicationChecklist({
+      hasSolicitationId: Boolean(solicitationId),
+      hasDeadline: Boolean(deadline),
+      hasDocuments: true,
+      hasContact: false,
+    }),
+    summary: [solicitationId ? `Solicitation ${solicitationId}.` : "", department ? `Department: ${department}.` : "", deadline ? `Due ${deadline}.` : ""]
+      .filter(Boolean)
+      .join(" "),
+    nextAction: "Open the Bonfire opportunity, download the official documents and addenda, then decide whether to save it for drafting.",
+  };
+}
+
+function stableBonfireOpportunityUrl(url?: string) {
+  if (!url) {
+    return undefined;
+  }
+
+  try {
+    const parsed = new URL(url);
+    for (const key of Array.from(parsed.searchParams.keys())) {
+      if (key.startsWith("__cf_")) {
+        parsed.searchParams.delete(key);
+      }
+    }
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+async function searchArapahoeCountyPurchasing(query: string): Promise<SearchTaskResult> {
+  const source = "Arapahoe County Purchasing";
+  try {
+    const response = await fetchPublicPage(ARAPAHOE_BIDNET_OPEN_BIDS_URL);
+    if (!response.ok) {
+      return { source, results: [], error: `BidNet Direct returned ${response.status}` };
+    }
+
+    return {
+      source,
+      results: parseBidNetAgencySolicitations(await response.text(), query, {
+        sourceName: source,
+        buyer: "Arapahoe County",
+        sourceLevel: "Local",
+        sourceState: "CO",
+        sourceType: "BidNet Direct public opportunity page",
+        portalUrl: ARAPAHOE_BIDNET_PORTAL_URL,
+        openBidsUrl: ARAPAHOE_BIDNET_OPEN_BIDS_URL,
+        submissionInstructions:
+          "Open the BidNet Direct posting, download the solicitation packet and addenda, confirm registration/submission requirements, and submit through BidNet Direct/Rocky Mountain E-Purchasing before the closing date.",
+      }),
+    };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+type BidNetAgencySource = {
+  sourceName: string;
+  buyer: string;
+  sourceLevel: string;
+  sourceState: string;
+  sourceType: string;
+  portalUrl: string;
+  openBidsUrl: string;
+  submissionInstructions: string;
+};
+
+function parseBidNetAgencySolicitations(html: string, query: string, source: BidNetAgencySource): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+  const rows = Array.from(html.matchAll(/<tr\b[^>]*class=["'][^"']*\bmets-table-row\b[^"']*["'][^>]*>([\s\S]*?)<\/tr>/gi));
+
+  return rows
+    .map((row, index) => bidNetAgencyRowToResult(row[1], terms, index, source))
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+function bidNetAgencyRowToResult(
+  rowHtml: string,
+  terms: string[],
+  index: number,
+  source: BidNetAgencySource,
+): UnifiedSearchResult | undefined {
+  const solicitationId = cleanText(rowHtml.match(/<div[^>]*class=["'][^"']*\bsol-num\b[^"']*["'][^>]*>([\s\S]*?)<\/div>/i)?.[1] ?? "");
+  const linkMatch = rowHtml.match(/<a\b(?=[^>]*\bsolicitation-link\b)[^>]*href=(["'])(.*?)\1[^>]*>([\s\S]*?)<\/a>/i);
+  const title = cleanText(linkMatch?.[3] ?? "");
+  const url = safeAbsoluteUrl(decodeHtml(linkMatch?.[2] ?? ""), source.openBidsUrl) ?? source.openBidsUrl;
+  const region = cleanText(rowHtml.match(/<div[^>]*class=["'][^"']*\bsol-region\b[^"']*["'][^>]*>[\s\S]*?<span[^>]*class=["'][^"']*\bsol-region-item\b[^"']*["'][^>]*>([\s\S]*?)<\/span>/i)?.[1] ?? "");
+  const dateValues = Array.from(rowHtml.matchAll(/<span[^>]*class=["'][^"']*\bdate-value\b[^"']*["'][^>]*>([\s\S]*?)<\/span>/gi)).map((date) =>
+    cleanText(date[1]),
+  );
+  const postedDate = dateValues[0];
+  const deadline = dateValues[1];
+  const haystack = [title, solicitationId, region, postedDate, deadline, source.sourceName, source.buyer, "bid solicitation rfp rfq"]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const score = scoreOpportunity(haystack, terms, 72 - Math.min(index, 30));
+
+  if (!title || (terms.length > 0 && score <= 0)) {
+    return undefined;
+  }
+
+  if (isPastDeadline(deadline)) {
+    return undefined;
+  }
+
+  const documents = [
+    solicitationId ? `Solicitation ID: ${solicitationId}` : undefined,
+    postedDate ? `Published: ${postedDate}` : undefined,
+    region ? `Region: ${region}` : undefined,
+  ].filter((value): value is string => Boolean(value));
+
+  return {
+    id: `bidnet:${source.sourceName}:${solicitationId || title}`,
+    resultType: "opportunity",
+    title,
+    buyer: source.buyer,
+    sourceName: source.sourceName,
+    sourceLevel: source.sourceLevel,
+    sourceState: source.sourceState,
+    sourceType: source.sourceType,
+    url,
+    portalUrl: source.portalUrl,
+    score,
+    status: "Open public BidNet posting",
+    solicitationId,
+    postedDate,
+    deadline,
+    documents,
+    documentLinks: [{ label: "BidNet posting, documents, and addenda", url }],
+    submissionInstructions: source.submissionInstructions,
+    applicationChecklist: applicationChecklist({
+      hasSolicitationId: Boolean(solicitationId),
+      hasDeadline: Boolean(deadline),
+      hasDocuments: true,
+      hasContact: false,
+    }),
+    summary: [solicitationId ? `Solicitation ${solicitationId}.` : "", postedDate ? `Published ${postedDate}.` : "", deadline ? `Closes ${deadline}.` : ""]
+      .filter(Boolean)
+      .join(" "),
+    nextAction: "Open the BidNet posting, download the official documents and addenda, then decide whether to save it for draft response work.",
+  };
 }
 
 async function searchTheWoodlands(query: string): Promise<{ source: string; results: UnifiedSearchResult[]; error?: string }> {
@@ -2218,7 +2571,7 @@ function bonfireProjectToResult(
     buyer: source.buyer,
     sourceName: source.sourceName,
     sourceLevel: source.level,
-    sourceState: "TX",
+    sourceState: source.state ?? "TX",
     sourceType: "Bonfire official API",
     url: projectUrl,
     portalUrl: source.portalUrl,
