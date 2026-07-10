@@ -12,6 +12,7 @@ import {
   Save,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { CompanyProfilePanel, DraftResponseWorkflow } from "@/components/proposal-draft-workflow";
 import type { TrackedOpportunityRecord } from "@/lib/supabase-admin";
 
 type ApiResponse =
@@ -108,6 +109,10 @@ export function SavedProposalsDashboard() {
       </header>
 
       <section className="mx-auto max-w-7xl px-5 py-5 lg:px-8">
+        <div className="mb-4">
+          <CompanyProfilePanel />
+        </div>
+
         {status === "not-configured" ? (
           <StatePanel
             icon="warning"
@@ -249,11 +254,16 @@ function ProposalCard({
             <a
               className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
               href={proposal.opportunity_url}
+              rel="noreferrer"
+              target="_blank"
             >
               <ArrowUpRight className="size-4" />
               <span>Open</span>
             </a>
           </div>
+        </div>
+        <div className="xl:col-span-2">
+          <DraftResponseWorkflow proposal={proposal} />
         </div>
       </div>
     </article>

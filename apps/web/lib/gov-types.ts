@@ -71,3 +71,45 @@ export type UnifiedSearchResponse = {
   errors: string[];
   message?: string;
 };
+
+export type CompanyProfile = {
+  id: string;
+  company_name: string;
+  website: string | null;
+  headquarters: string | null;
+  service_summary: string | null;
+  differentiators: string | null;
+  certifications: string | null;
+  past_performance: string | null;
+  team_bios: string | null;
+  standard_language: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DraftQuestionnaire = {
+  bidDecision?: string;
+  primaryService?: string;
+  projectLead?: string;
+  winThemes?: string;
+  pastPerformance?: string;
+  staffingNotes?: string;
+  pricingNotes?: string;
+  complianceNotes?: string;
+  missingInfo?: string;
+  tone?: string;
+};
+
+export type ProposalDraftRecord = {
+  id: string;
+  tracked_opportunity_id: string;
+  draft_title: string;
+  draft_status: string;
+  google_doc_id: string | null;
+  google_doc_url: string | null;
+  draft_markdown: string;
+  questionnaire: DraftQuestionnaire;
+  company_snapshot: Partial<CompanyProfile> | null;
+  created_at: string;
+  updated_at: string;
+};

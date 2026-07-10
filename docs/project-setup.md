@@ -13,6 +13,7 @@ or Supabase account.
 2. Vercel project connected to that GitHub repo.
 3. Supabase project for saved searches, tracked opportunities, and source health.
 4. SAM.gov API key stored in Vercel environment variables.
+5. Optional Google Cloud service account for creating Google Docs drafts.
 
 ## GitHub
 
@@ -48,6 +49,27 @@ The app uses Supabase for:
 - Tracked opportunities.
 - Saved proposal status and notes.
 - Source health checks from each search run.
+- Company memory for proposal drafting.
+- Draft response records and approved response blocks.
+
+## Google Docs Drafts
+
+The app can create Google Docs from draft responses when Google is configured.
+Without these variables, the app still creates and saves draft text, and the user
+can copy it into a Google Doc manually.
+
+Set up:
+
+- Create a Google Cloud project under `aidevelopment@trinitytd.com`.
+- Enable the Google Drive API and Google Docs API.
+- Create a service account and key.
+- Share the target Google Drive folder with the service account email.
+- Add these Vercel environment variables:
+  - `GOOGLE_SERVICE_ACCOUNT_EMAIL`
+  - `GOOGLE_PRIVATE_KEY`
+  - `GOOGLE_DRIVE_FOLDER_ID`
+  - `GOOGLE_DOC_REVIEWER_EMAIL`
+- Redeploy the Vercel project after adding the variables.
 
 ## First Push Checklist
 

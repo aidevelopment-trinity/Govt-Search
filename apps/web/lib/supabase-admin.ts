@@ -1,4 +1,4 @@
-import type { UnifiedSearchResult } from "@/lib/gov-types";
+import type { CompanyProfile, DraftQuestionnaire, ProposalDraftRecord, UnifiedSearchResult } from "@/lib/gov-types";
 
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
@@ -27,6 +27,7 @@ type SourceHealthInput = {
 
 export type TrackedOpportunityRecord = {
   id: string;
+  source_result_id?: string;
   title: string;
   buyer: string | null;
   source_name: string;
@@ -46,6 +47,7 @@ export type TrackedOpportunityRecord = {
   summary: string | null;
   next_action: string | null;
   notes: string | null;
+  raw_result?: UnifiedSearchResult | null;
   created_at: string;
   updated_at: string;
 };
@@ -168,6 +170,13 @@ export async function listTrackedOpportunities() {
   });
 }
 
+export async function getTrackedOpportunity(id: string) {
+  return supabaseRequest<TrackedOpportunityRecord[]>("tracked_opportunities", {
+    query:
+      `?id=eq.${encodeURIComponent(id)}&select=id,source_result_id,title,buyer,source_name,source_level,source_state,source_type,opportunity_url,portal_url,fit_score,opportunity_status,pursuit_status,solicitation_id,deadline,posted_date,budget,contact,summary,next_action,notes,raw_result,created_at,updated_at&limit=1`,
+  });
+}
+
 export async function updateTrackedOpportunity(input: UpdateTrackedOpportunityInput) {
   const updates: Record<string, JsonValue> = {};
 
@@ -187,6 +196,68 @@ export async function updateTrackedOpportunity(input: UpdateTrackedOpportunityIn
     method: "PATCH",
     query: `?id=eq.${encodeURIComponent(input.id)}`,
     body: updates,
+  });
+}
+
+export async function getCompanyProfile() {
+  return supabaseRequest<CompanyProfile[]>("company_profile", {
+    query:
+      "?id=eq.default&select=id,company_name,website,headquarters,service_summary,differentiators,certifications,past_performance,team_bios,standard_language,created_at,updated_at&limit=1",
+  });
+}
+
+export async function upsertCompanyProfile(input: Partial<CompanyProfile>) {
+  return supabaseRequest<CompanyProfile[]>("company_profile", {
+    method: "POST",
+    query: "?on_conflict=id",
+    body: [
+      {
+        id: "default",
+        company_name: input.company_name ?? "",
+        website: input.website ?? null,
+        headquarters: input.headquarters ?? null,
+        service_summary: input.service_summary ?? null,
+        differentiators: input.differentiators ?? null,
+        certifications: input.certifications ?? null,
+        past_performance: input.past_performance ?? null,
+        team_bios: input.team_bios ?? null,
+        standard_language: input.standard_language ?? null,
+      },
+    ],
+  });
+}
+
+export async function createProposalDraft(input: {
+  trackedOpportunityId: string;
+  draftTitle: string;
+  draftMarkdown: string;
+  questionnaire: DraftQuestionnaire;
+  companySnapshot: Partial<CompanyProfile> | null;
+  googleDocId?: string | null;
+  googleDocUrl?: string | null;
+}) {
+  return supabaseRequest<ProposalDraftRecord[]>("proposal_drafts", {
+    method: "POST",
+    body: [
+      {
+        tracked_opportunity_id: input.trackedOpportunityId,
+        draft_title: input.draftTitle,
+        draft_status: input.googleDocUrl ? "google_doc_created" : "draft_created",
+        google_doc_id: input.googleDocId ?? null,
+        google_doc_url: input.googleDocUrl ?? null,
+        draft_markdown: input.draftMarkdown,
+        questionnaire: input.questionnaire as JsonValue,
+        company_snapshot: input.companySnapshot as JsonValue,
+      },
+    ],
+  });
+}
+
+export async function listProposalDrafts(trackedOpportunityId?: string) {
+  const filter = trackedOpportunityId ? `&tracked_opportunity_id=eq.${encodeURIComponent(trackedOpportunityId)}` : "";
+  return supabaseRequest<ProposalDraftRecord[]>("proposal_drafts", {
+    query:
+      `?select=id,tracked_opportunity_id,draft_title,draft_status,google_doc_id,google_doc_url,draft_markdown,questionnaire,company_snapshot,created_at,updated_at${filter}&order=created_at.desc&limit=50`,
   });
 }
 
