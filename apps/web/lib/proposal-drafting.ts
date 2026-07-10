@@ -80,14 +80,14 @@ export function buildProposalDraft({ opportunity, companyProfile, approvedBlocks
     ...complianceRows,
     "",
     "Executive Summary",
-    `${companyName} is pleased to submit this response for ${opportunityTitle}. Based on the opportunity description and available source data, the requested work appears aligned with ${serviceLine}.`,
+    `${companyName} is pleased to submit this response for ${opportunityTitle}. Based on the opportunity description and available source data, the requested work appears aligned with ${sentenceFragment(serviceLine)}.`,
     "",
-    `${companyName} brings the following strengths to this engagement: ${winThemes}.`,
+    `${companyName} brings the following strengths to this engagement: ${sentenceFragment(winThemes)}.`,
     "",
     "We understand that public-sector buyers need a partner that can deliver practical results, communicate clearly, meet deadlines, and reduce administrative burden. Our proposed approach is built around clear planning, accountable delivery, and measurable outcomes.",
     "",
     "Understanding of Need",
-    `The buyer is seeking support related to ${serviceLine}. The source summary captured for this opportunity is:`,
+    `The buyer is seeking support related to ${sentenceFragment(serviceLine)}. The source summary captured for this opportunity is:`,
     "",
     cleanValue(opportunity.summary) || "[SUMMARY FROM SOLICITATION TO ADD]",
     "",
@@ -181,6 +181,10 @@ export function companySnapshot(profile?: CompanyProfile | null) {
 
 function cleanValue(value?: string | null) {
   return value?.trim() || "";
+}
+
+function sentenceFragment(value: string) {
+  return cleanValue(value).replace(/[.!?]+$/g, "");
 }
 
 function buildComplianceRows({

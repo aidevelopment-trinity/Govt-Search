@@ -18,6 +18,7 @@ import {
   Save,
   Search,
   ShieldCheck,
+  Settings,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { ProcurementSource, SourceSearchStatus, UnifiedSearchResponse, UnifiedSearchResult } from "@/lib/gov-types";
@@ -277,6 +278,13 @@ export function GovContractsShell({
               >
                 <FileText className="size-4" />
                 <span>Drafts</span>
+              </a>
+              <a
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                href="/setup"
+              >
+                <Settings className="size-4" />
+                <span>Setup</span>
               </a>
             </div>
           </div>

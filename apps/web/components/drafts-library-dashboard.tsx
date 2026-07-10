@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpRight, CheckCircle2, ClipboardCheck, Copy, FileText, RefreshCw, Save } from "lucide-react";
+import { ArrowUpRight, CheckCircle2, ClipboardCheck, Copy, FileText, RefreshCw, Save, Settings } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { ApprovedResponseBlockRecord, ProposalDraftRecord } from "@/lib/gov-types";
 
@@ -78,6 +78,13 @@ export function DraftsLibraryDashboard() {
                 href="/"
               >
                 Search
+              </a>
+              <a
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                href="/setup"
+              >
+                <Settings className="size-4" />
+                <span>Setup</span>
               </a>
               <button
                 className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
