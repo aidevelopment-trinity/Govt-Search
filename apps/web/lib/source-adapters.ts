@@ -361,8 +361,12 @@ const HANDLED_SOURCE_NAMES = new Set([
   ...TEXAS_WORKDAY_SOURCE_BY_NAME.keys(),
   ...TEXAS_REFERENCE_SOURCE_NAMES,
 ]);
-const SERVER_BLOCKED_SOURCE_NAMES = new Set(["The Woodlands Township Bids", "Equalis Group Current Solicitations"]);
+const SERVER_BLOCKED_SOURCE_NAMES = new Set(["The Woodlands Township Bids", "Bexar County Purchasing", "Equalis Group Current Solicitations"]);
 const PENDING_SOURCE_MESSAGES = new Map<string, string>([
+  [
+    "Bexar County Purchasing",
+    "The official CivicEngage page is public and currently shows no open bid postings in browser checks, but Vercel/server-side fetching is blocked. Use email alerts, PublicPurchase monitoring, or an approved browser collector before marking this source live.",
+  ],
   [
     "City of Houston Procurement",
     "The official City of Houston page sends open solicitations through Beacon, which blocks server-side access with AWS WAF/CAPTCHA. Use Beacon alerts, a vendor account, or an approved browser collector.",
@@ -499,13 +503,6 @@ export async function searchConnectedSources({ query, state, level, sources }: S
         searchedSources.push("City of Austin Purchasing");
         removePending(pendingSources, "City of Austin Purchasing");
         tasks.push({ source: "City of Austin Purchasing", run: () => searchAustinSolicitations(query) });
-        continue;
-      }
-
-      if (source.source_name === "City of Frisco Purchasing") {
-        searchedSources.push("City of Frisco Purchasing");
-        removePending(pendingSources, "City of Frisco Purchasing");
-        tasks.push({ source: "City of Frisco Purchasing", run: () => searchFriscoCurrentBids(query) });
         continue;
       }
 
