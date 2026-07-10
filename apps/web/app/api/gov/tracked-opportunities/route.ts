@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { UnifiedSearchResult } from "@/lib/gov-types";
-import { listTrackedOpportunities, trackOpportunity, updateTrackedOpportunity } from "@/lib/supabase-admin";
+import { listTrackedOpportunities, trackOpportunity, unsaveTrackedOpportunity, updateTrackedOpportunity } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +32,20 @@ export async function PATCH(request: Request) {
   const pursuitStatus = typeof body.pursuitStatus === "string" ? body.pursuitStatus : undefined;
   const notes = typeof body.notes === "string" ? body.notes : undefined;
   const result = await updateTrackedOpportunity({ id: body.id, pursuitStatus, notes });
+  const status = result.ok ? 200 : result.configured ? 502 : 503;
+  return jsonNoStore(result, { status });
+}
+
+export async function DELETE(request: Request) {
+  const url = new URL(request.url);
+  const body = (await request.json().catch(() => null)) as { id?: unknown } | null;
+  const id = url.searchParams.get("id") ?? (typeof body?.id === "string" ? body.id : "");
+
+  if (!id) {
+    return jsonNoStore({ ok: false, error: "Missing tracked opportunity ID." }, { status: 400 });
+  }
+
+  const result = await unsaveTrackedOpportunity(id);
   const status = result.ok ? 200 : result.configured ? 502 : 503;
   return jsonNoStore(result, { status });
 }

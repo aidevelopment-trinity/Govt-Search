@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpRight, CheckCircle2, ClipboardCheck, Copy, FileText, RefreshCw, Save, Settings } from "lucide-react";
+import { ArrowUpRight, CheckCircle2, ClipboardCheck, Copy, FileText, RefreshCw, Save, Settings, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { ApprovedResponseBlockRecord, ProposalDraftRecord } from "@/lib/gov-types";
 
@@ -21,6 +21,9 @@ export function DraftsLibraryDashboard() {
   const [message, setMessage] = useState("");
   const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
   const [copiedDraftId, setCopiedDraftId] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deletingDraftId, setDeletingDraftId] = useState<string | null>(null);
+  const [deleteStatus, setDeleteStatus] = useState<"idle" | "error">("idle");
 
   useEffect(() => {
     void loadData();
@@ -58,6 +61,38 @@ export function DraftsLibraryDashboard() {
 
   function addBlock(block: ApprovedResponseBlockRecord) {
     setBlocks((current) => [block, ...current]);
+  }
+
+  async function deleteDraft(draft: ProposalDraftRecord) {
+    if (deleteConfirmId !== draft.id) {
+      setDeleteConfirmId(draft.id);
+      setDeleteStatus("idle");
+      return;
+    }
+
+    setDeletingDraftId(draft.id);
+    setDeleteStatus("idle");
+    try {
+      const response = await fetch("/api/gov/proposal-drafts", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: draft.id }),
+      });
+      const data = (await response.json()) as { ok: boolean };
+
+      if (data.ok) {
+        const nextDrafts = drafts.filter((item) => item.id !== draft.id);
+        setDrafts(nextDrafts);
+        setSelectedDraftId((currentSelected) => (currentSelected === draft.id ? nextDrafts[0]?.id ?? null : currentSelected));
+        setDeleteConfirmId(null);
+      } else {
+        setDeleteStatus("error");
+      }
+    } catch {
+      setDeleteStatus("error");
+    } finally {
+      setDeletingDraftId(null);
+    }
   }
 
   return (
@@ -181,8 +216,25 @@ export function DraftsLibraryDashboard() {
                     <Copy className="size-4" />
                     <span>{copiedDraftId === selectedDraft.id ? "Copied" : "Copy Draft"}</span>
                   </button>
+                  <button
+                    className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-rose-200 bg-white px-3 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:text-rose-300"
+                    type="button"
+                    disabled={deletingDraftId === selectedDraft.id}
+                    onClick={() => void deleteDraft(selectedDraft)}
+                  >
+                    <Trash2 className="size-4" />
+                    <span>{deleteDraftButtonLabel({ confirming: deleteConfirmId === selectedDraft.id, deleting: deletingDraftId === selectedDraft.id })}</span>
+                  </button>
                 </div>
               </div>
+              {deleteConfirmId === selectedDraft.id ? (
+                <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                  Click Confirm Delete to permanently remove this saved draft record.
+                </p>
+              ) : null}
+              {deleteStatus === "error" ? (
+                <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">Could not delete this draft. Try again.</p>
+              ) : null}
 
               <ApprovedBlockForm draft={selectedDraft} onCreated={addBlock} />
 
@@ -352,4 +404,10 @@ function labelize(value: string) {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function deleteDraftButtonLabel({ confirming, deleting }: { confirming: boolean; deleting: boolean }) {
+  if (deleting) return "Deleting";
+  if (confirming) return "Confirm Delete";
+  return "Delete Draft";
 }

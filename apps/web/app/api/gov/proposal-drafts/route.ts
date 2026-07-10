@@ -2,7 +2,14 @@ import { NextResponse } from "next/server";
 import { createGoogleDocDraft, isGoogleDocsConfigured } from "@/lib/google-docs";
 import type { DraftQuestionnaire } from "@/lib/gov-types";
 import { buildProposalDraft, companySnapshot } from "@/lib/proposal-drafting";
-import { createProposalDraft, getCompanyProfile, getTrackedOpportunity, listApprovedResponseBlocks, listProposalDrafts } from "@/lib/supabase-admin";
+import {
+  createProposalDraft,
+  deleteProposalDraft,
+  getCompanyProfile,
+  getTrackedOpportunity,
+  listApprovedResponseBlocks,
+  listProposalDrafts,
+} from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +71,20 @@ export async function POST(request: Request) {
     },
     { status },
   );
+}
+
+export async function DELETE(request: Request) {
+  const url = new URL(request.url);
+  const body = (await request.json().catch(() => null)) as { id?: unknown } | null;
+  const id = url.searchParams.get("id") ?? (typeof body?.id === "string" ? body.id : "");
+
+  if (!id) {
+    return jsonNoStore({ ok: false, error: "Missing proposal draft ID." }, { status: 400 });
+  }
+
+  const result = await deleteProposalDraft(id);
+  const status = result.ok ? 200 : result.configured ? 502 : 503;
+  return jsonNoStore(result, { status });
 }
 
 function normalizeQuestionnaire(value: DraftQuestionnaire | undefined): DraftQuestionnaire {

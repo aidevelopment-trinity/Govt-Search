@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Save,
   Settings,
+  Trash2,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { CompanyProfilePanel, DraftResponseWorkflow } from "@/components/proposal-draft-workflow";
@@ -70,6 +71,10 @@ export function SavedProposalsDashboard() {
 
   function updateProposal(updated: TrackedOpportunityRecord) {
     setProposals((current) => current.map((proposal) => (proposal.id === updated.id ? updated : proposal)));
+  }
+
+  function removeProposal(id: string) {
+    setProposals((current) => current.filter((proposal) => proposal.id !== id));
   }
 
   return (
@@ -153,7 +158,7 @@ export function SavedProposalsDashboard() {
         {status === "ready" && filteredProposals.length > 0 ? (
           <div className="grid gap-3">
             {filteredProposals.map((proposal) => (
-              <ProposalCard key={proposal.id} proposal={proposal} onUpdated={updateProposal} />
+              <ProposalCard key={proposal.id} proposal={proposal} onDeleted={removeProposal} onUpdated={updateProposal} />
             ))}
           </div>
         ) : null}
@@ -164,14 +169,17 @@ export function SavedProposalsDashboard() {
 
 function ProposalCard({
   proposal,
+  onDeleted,
   onUpdated,
 }: {
   proposal: TrackedOpportunityRecord;
+  onDeleted: (id: string) => void;
   onUpdated: (proposal: TrackedOpportunityRecord) => void;
 }) {
   const [pursuitStatus, setPursuitStatus] = useState(proposal.pursuit_status);
   const [notes, setNotes] = useState(proposal.notes ?? "");
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [unsaveStatus, setUnsaveStatus] = useState<"idle" | "confirm" | "saving" | "error">("idle");
 
   async function saveChanges() {
     setSaveStatus("saving");
@@ -193,6 +201,31 @@ function ProposalCard({
       }
     } catch {
       setSaveStatus("error");
+    }
+  }
+
+  async function unsaveProposal() {
+    if (unsaveStatus !== "confirm") {
+      setUnsaveStatus("confirm");
+      return;
+    }
+
+    setUnsaveStatus("saving");
+    try {
+      const response = await fetch("/api/gov/tracked-opportunities", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: proposal.id }),
+      });
+      const data = (await response.json()) as { ok: boolean };
+
+      if (data.ok) {
+        onDeleted(proposal.id);
+      } else {
+        setUnsaveStatus("error");
+      }
+    } catch {
+      setUnsaveStatus("error");
     }
   }
 
@@ -268,6 +301,15 @@ function ProposalCard({
               <Save className="size-4" />
               <span>{saveButtonLabel(saveStatus)}</span>
             </button>
+            <button
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-rose-200 bg-white px-3 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:text-rose-300"
+              type="button"
+              disabled={unsaveStatus === "saving"}
+              onClick={() => void unsaveProposal()}
+            >
+              <Trash2 className="size-4" />
+              <span>{unsaveButtonLabel(unsaveStatus)}</span>
+            </button>
             <a
               className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
               href={proposal.opportunity_url}
@@ -278,6 +320,10 @@ function ProposalCard({
               <span>Open</span>
             </a>
           </div>
+          {unsaveStatus === "confirm" ? (
+            <p className="text-xs text-rose-700">Click Confirm Unsave to remove this from saved proposals.</p>
+          ) : null}
+          {unsaveStatus === "error" ? <p className="text-xs text-rose-700">Could not unsave this proposal. Try again.</p> : null}
         </div>
         <div className="xl:col-span-2">
           <DraftResponseWorkflow proposal={proposal} />
@@ -333,4 +379,11 @@ function saveButtonLabel(status: "idle" | "saving" | "saved" | "error") {
   if (status === "saved") return "Saved";
   if (status === "error") return "Save Failed";
   return "Save";
+}
+
+function unsaveButtonLabel(status: "idle" | "confirm" | "saving" | "error") {
+  if (status === "confirm") return "Confirm Unsave";
+  if (status === "saving") return "Unsaving";
+  if (status === "error") return "Unsave Failed";
+  return "Unsave";
 }

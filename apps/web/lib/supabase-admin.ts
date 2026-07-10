@@ -166,7 +166,7 @@ export async function trackOpportunity(result: UnifiedSearchResult) {
 export async function listTrackedOpportunities() {
   return supabaseRequest<TrackedOpportunityRecord[]>("tracked_opportunities", {
     query:
-      "?select=id,title,buyer,source_name,source_level,source_state,source_type,opportunity_url,portal_url,fit_score,opportunity_status,pursuit_status,solicitation_id,deadline,posted_date,budget,contact,summary,next_action,notes,created_at,updated_at&order=created_at.desc&limit=100",
+      "?pursuit_status=not.eq.removed&select=id,title,buyer,source_name,source_level,source_state,source_type,opportunity_url,portal_url,fit_score,opportunity_status,pursuit_status,solicitation_id,deadline,posted_date,budget,contact,summary,next_action,notes,created_at,updated_at&order=created_at.desc&limit=100",
   });
 }
 
@@ -196,6 +196,14 @@ export async function updateTrackedOpportunity(input: UpdateTrackedOpportunityIn
     method: "PATCH",
     query: `?id=eq.${encodeURIComponent(input.id)}`,
     body: updates,
+  });
+}
+
+export async function unsaveTrackedOpportunity(id: string) {
+  return supabaseRequest<TrackedOpportunityRecord[]>("tracked_opportunities", {
+    method: "PATCH",
+    query: `?id=eq.${encodeURIComponent(id)}`,
+    body: { pursuit_status: "removed" },
   });
 }
 
@@ -258,6 +266,14 @@ export async function listProposalDrafts(trackedOpportunityId?: string) {
   return supabaseRequest<ProposalDraftRecord[]>("proposal_drafts", {
     query:
       `?select=id,tracked_opportunity_id,draft_title,draft_status,google_doc_id,google_doc_url,draft_markdown,questionnaire,company_snapshot,created_at,updated_at${filter}&order=created_at.desc&limit=50`,
+  });
+}
+
+export async function deleteProposalDraft(id: string) {
+  return supabaseRequest<ProposalDraftRecord[]>("proposal_drafts", {
+    method: "DELETE",
+    query:
+      `?id=eq.${encodeURIComponent(id)}&select=id,tracked_opportunity_id,draft_title,draft_status,google_doc_id,google_doc_url,draft_markdown,questionnaire,company_snapshot,created_at,updated_at`,
   });
 }
 
