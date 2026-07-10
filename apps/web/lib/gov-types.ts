@@ -113,3 +113,16 @@ export type ProposalDraftRecord = {
   created_at: string;
   updated_at: string;
 };
+
+export type ApprovedResponseBlockRecord = {
+  id: string;
+  title: string;
+  category: string;
+  content: string;
+  source_draft_id: string | null;
+  source_opportunity_id: string | null;
+  tags: string[];
+  approved_at: string | null;
+  created_at: string;
+  updated_at: string;
+};

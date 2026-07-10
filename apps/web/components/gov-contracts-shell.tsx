@@ -263,13 +263,22 @@ export function GovContractsShell({
               <Database className="size-4" />
               <span>{sources.length} sources</span>
             </div>
-            <a
-              className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              href="/proposals"
-            >
-              <ClipboardList className="size-4" />
-              <span>Saved Proposals</span>
-            </a>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <a
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                href="/proposals"
+              >
+                <ClipboardList className="size-4" />
+                <span>Saved Proposals</span>
+              </a>
+              <a
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                href="/drafts"
+              >
+                <FileText className="size-4" />
+                <span>Drafts</span>
+              </a>
+            </div>
           </div>
 
           <form

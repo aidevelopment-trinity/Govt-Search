@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createGoogleDocDraft, isGoogleDocsConfigured } from "@/lib/google-docs";
 import type { DraftQuestionnaire } from "@/lib/gov-types";
 import { buildProposalDraft, companySnapshot } from "@/lib/proposal-drafting";
-import { createProposalDraft, getCompanyProfile, getTrackedOpportunity, listProposalDrafts } from "@/lib/supabase-admin";
+import { createProposalDraft, getCompanyProfile, getTrackedOpportunity, listApprovedResponseBlocks, listProposalDrafts } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
 
@@ -38,8 +38,10 @@ export async function POST(request: Request) {
   }
 
   const profile = companyResult.ok ? companyResult.data[0] ?? null : null;
+  const approvedBlocksResult = await listApprovedResponseBlocks();
+  const approvedBlocks = approvedBlocksResult.ok ? approvedBlocksResult.data : [];
   const questionnaire = normalizeQuestionnaire(body.questionnaire);
-  const draftMarkdown = buildProposalDraft({ opportunity, companyProfile: profile, questionnaire });
+  const draftMarkdown = buildProposalDraft({ opportunity, companyProfile: profile, approvedBlocks, questionnaire });
   const draftTitle = `${safeTitle(profile?.company_name || "Proposal")} - ${safeTitle(opportunity.title)}`;
   const googleResult = await createGoogleDocDraft({ title: draftTitle, content: draftMarkdown });
   const savedDraft = await createProposalDraft({

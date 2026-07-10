@@ -1,4 +1,4 @@
-import type { CompanyProfile, DraftQuestionnaire, ProposalDraftRecord, UnifiedSearchResult } from "@/lib/gov-types";
+import type { ApprovedResponseBlockRecord, CompanyProfile, DraftQuestionnaire, ProposalDraftRecord, UnifiedSearchResult } from "@/lib/gov-types";
 
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
@@ -258,6 +258,36 @@ export async function listProposalDrafts(trackedOpportunityId?: string) {
   return supabaseRequest<ProposalDraftRecord[]>("proposal_drafts", {
     query:
       `?select=id,tracked_opportunity_id,draft_title,draft_status,google_doc_id,google_doc_url,draft_markdown,questionnaire,company_snapshot,created_at,updated_at${filter}&order=created_at.desc&limit=50`,
+  });
+}
+
+export async function listApprovedResponseBlocks() {
+  return supabaseRequest<ApprovedResponseBlockRecord[]>("approved_response_blocks", {
+    query: "?select=id,title,category,content,source_draft_id,source_opportunity_id,tags,approved_at,created_at,updated_at&order=created_at.desc&limit=100",
+  });
+}
+
+export async function createApprovedResponseBlock(input: {
+  title: string;
+  category: string;
+  content: string;
+  sourceDraftId?: string | null;
+  sourceOpportunityId?: string | null;
+  tags?: string[];
+}) {
+  return supabaseRequest<ApprovedResponseBlockRecord[]>("approved_response_blocks", {
+    method: "POST",
+    body: [
+      {
+        title: input.title,
+        category: input.category,
+        content: input.content,
+        source_draft_id: input.sourceDraftId ?? null,
+        source_opportunity_id: input.sourceOpportunityId ?? null,
+        tags: (input.tags ?? []) as JsonValue,
+        approved_at: new Date().toISOString(),
+      },
+    ],
   });
 }
 

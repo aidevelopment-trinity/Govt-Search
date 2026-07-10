@@ -1,15 +1,16 @@
 import "server-only";
 
-import type { CompanyProfile, DraftQuestionnaire, UnifiedSearchResult } from "@/lib/gov-types";
+import type { ApprovedResponseBlockRecord, CompanyProfile, DraftQuestionnaire, UnifiedSearchResult } from "@/lib/gov-types";
 import type { TrackedOpportunityRecord } from "@/lib/supabase-admin";
 
 type DraftInput = {
   opportunity: TrackedOpportunityRecord;
   companyProfile?: CompanyProfile | null;
+  approvedBlocks?: ApprovedResponseBlockRecord[];
   questionnaire: DraftQuestionnaire;
 };
 
-export function buildProposalDraft({ opportunity, companyProfile, questionnaire }: DraftInput) {
+export function buildProposalDraft({ opportunity, companyProfile, approvedBlocks = [], questionnaire }: DraftInput) {
   const rawResult = opportunity.raw_result;
   const companyName = cleanValue(companyProfile?.company_name) || "[COMPANY NAME]";
   const opportunityTitle = cleanValue(opportunity.title);
@@ -36,6 +37,8 @@ export function buildProposalDraft({ opportunity, companyProfile, questionnaire 
         "Confirm required licenses, insurance, certifications, references, and signatures.",
         "Create internal review deadline before the buyer due date.",
       ];
+  const complianceRows = buildComplianceRows({ checklist, deadline, projectLead, rawResult, opportunity });
+  const matchedApprovedBlocks = selectApprovedBlocks(approvedBlocks, [serviceLine, opportunityTitle, buyer, rawResult?.sourceName ?? opportunity.source_name]);
 
   return [
     `${companyName} Draft Response`,
@@ -54,6 +57,11 @@ export function buildProposalDraft({ opportunity, companyProfile, questionnaire 
     "Document Links",
     ...documentLinks.slice(0, 10).map((link) => `- ${link.label}: ${link.url}`),
     "",
+    "Source Document Review Matrix",
+    "| Document | Review Purpose | Status | Notes |",
+    "| --- | --- | --- | --- |",
+    ...documentLinks.slice(0, 10).map((link) => `| ${escapeTable(link.label)} | Confirm scope, forms, addenda, deadline, and submission instructions. | Not reviewed | ${escapeTable(link.url)} |`),
+    "",
     "Bid / No-Bid Snapshot",
     `Current decision: ${cleanValue(questionnaire.bidDecision) || "[REVIEW]"}`,
     `Primary service fit: ${serviceLine}`,
@@ -65,6 +73,11 @@ export function buildProposalDraft({ opportunity, companyProfile, questionnaire 
     `- [ ] Confirm response owner: ${projectLead}`,
     "- [ ] Confirm required forms, pricing templates, signatures, exceptions, and addenda.",
     "- [ ] Confirm whether questions must be submitted before a separate Q&A deadline.",
+    "",
+    "Compliance Matrix",
+    "| Requirement / Task | Source | Response Owner | Status | Draft Location / Notes |",
+    "| --- | --- | --- | --- | --- |",
+    ...complianceRows,
     "",
     "Executive Summary",
     `${companyName} is pleased to submit this response for ${opportunityTitle}. Based on the opportunity description and available source data, the requested work appears aligned with ${serviceLine}.`,
@@ -110,6 +123,10 @@ export function buildProposalDraft({ opportunity, companyProfile, questionnaire 
     "Relevant Past Performance",
     pastPerformance,
     "",
+    "Approved Language To Consider",
+    ...(matchedApprovedBlocks.length
+      ? matchedApprovedBlocks.flatMap((block) => [`${block.title} (${block.category})`, block.content, ""])
+      : ["[No approved response-library blocks matched yet. Add approved language from reviewed drafts to improve future responses.]", ""]),
     "Team and Staffing",
     staffingNotes,
     "",
@@ -164,4 +181,75 @@ export function companySnapshot(profile?: CompanyProfile | null) {
 
 function cleanValue(value?: string | null) {
   return value?.trim() || "";
+}
+
+function buildComplianceRows({
+  checklist,
+  deadline,
+  projectLead,
+  rawResult,
+  opportunity,
+}: {
+  checklist: string[];
+  deadline: string;
+  projectLead: string;
+  rawResult?: UnifiedSearchResult | null;
+  opportunity: TrackedOpportunityRecord;
+}) {
+  const rows = [
+    ...checklist.map((item) => ({
+      requirement: item,
+      source: "Application checklist",
+      owner: projectLead,
+      status: "Open",
+      notes: "Confirm against official solicitation documents.",
+    })),
+    {
+      requirement: `Submit response by ${deadline}`,
+      source: "Opportunity metadata",
+      owner: projectLead,
+      status: deadline.includes("[") ? "Needs date" : "Open",
+      notes: "Set an internal deadline at least 48 hours before buyer deadline.",
+    },
+    {
+      requirement: "Download and review all addenda before submission",
+      source: rawResult?.documentLinks?.length ? "Captured document links" : "Opportunity posting",
+      owner: projectLead,
+      status: "Open",
+      notes: "Addenda may change forms, scope, or deadline.",
+    },
+    {
+      requirement: "Confirm submission portal and vendor registration",
+      source: opportunity.portal_url ?? opportunity.opportunity_url,
+      owner: projectLead,
+      status: "Open",
+      notes: "Do not wait until due date to confirm portal access.",
+    },
+  ];
+
+  return rows.map(
+    (row) =>
+      `| ${escapeTable(row.requirement)} | ${escapeTable(row.source)} | ${escapeTable(row.owner)} | ${escapeTable(row.status)} | ${escapeTable(row.notes)} |`,
+  );
+}
+
+function selectApprovedBlocks(blocks: ApprovedResponseBlockRecord[], terms: string[]) {
+  const normalizedTerms = terms
+    .flatMap((term) => term.toLowerCase().split(/[^a-z0-9]+/))
+    .filter((term) => term.length > 3);
+
+  return blocks
+    .map((block) => {
+      const haystack = [block.title, block.category, block.content, block.tags.join(" ")].join(" ").toLowerCase();
+      const score = normalizedTerms.reduce((total, term) => total + (haystack.includes(term) ? 1 : 0), 0);
+      return { block, score };
+    })
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.block.title.localeCompare(b.block.title))
+    .slice(0, 5)
+    .map((item) => item.block);
+}
+
+function escapeTable(value?: string | null) {
+  return cleanValue(value).replace(/\|/g, "\\|").replace(/\n+/g, " ");
 }

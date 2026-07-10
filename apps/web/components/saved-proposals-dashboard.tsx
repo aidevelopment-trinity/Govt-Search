@@ -83,15 +83,24 @@ export function SavedProposalsDashboard() {
               <h1 className="mt-2 text-2xl font-semibold">Saved Proposals</h1>
               <p className="text-sm text-slate-500">Review the opportunities you want to pursue, update status, and keep working notes in one place.</p>
             </div>
-            <button
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
-              type="button"
-              disabled={status === "loading"}
-              onClick={() => void loadProposals()}
-            >
-              <RefreshCw className={`size-4 ${status === "loading" ? "animate-spin" : ""}`} />
-              <span>Refresh</span>
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <a
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                href="/drafts"
+              >
+                <FileText className="size-4" />
+                <span>Drafts Library</span>
+              </a>
+              <button
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+                type="button"
+                disabled={status === "loading"}
+                onClick={() => void loadProposals()}
+              >
+                <RefreshCw className={`size-4 ${status === "loading" ? "animate-spin" : ""}`} />
+                <span>Refresh</span>
+              </button>
+            </div>
           </div>
 
           <div className="flex gap-2 overflow-x-auto pb-1">

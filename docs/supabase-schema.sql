@@ -110,6 +110,9 @@ on proposal_drafts (tracked_opportunity_id, created_at desc);
 create index if not exists approved_response_blocks_category_idx
 on approved_response_blocks (category);
 
+create index if not exists approved_response_blocks_search_idx
+on approved_response_blocks using gin (to_tsvector('english', title || ' ' || category || ' ' || content));
+
 create or replace function touch_updated_at()
 returns trigger as $$
 begin
