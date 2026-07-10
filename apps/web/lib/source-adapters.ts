@@ -176,6 +176,12 @@ const TEXAS_BONFIRE_SOURCES: BonfireSource[] = [
     portalUrl: "https://ntmwd.bonfirehub.com/portal/?tab=openOpportunities",
     level: "Adjacent",
   },
+  {
+    sourceName: "Houston METRO Procurement",
+    buyer: "Houston METRO",
+    portalUrl: "https://ridemetro.bonfirehub.com/portal/?tab=openOpportunities",
+    level: "Adjacent",
+  },
 ];
 const TEXAS_BONFIRE_SOURCE_BY_NAME = new Map(TEXAS_BONFIRE_SOURCES.map((source) => [source.sourceName, source]));
 const TEXAS_IONWAVE_SOURCES: IonWaveSource[] = [
@@ -228,6 +234,13 @@ const TEXAS_IONWAVE_SOURCES: IonWaveSource[] = [
     portalUrl: "https://houstonisd.ionwave.net/Login.aspx",
     level: "Education",
   },
+  {
+    sourceName: "San Antonio Water System Purchasing",
+    buyer: "San Antonio Water System",
+    currentBidsUrl: "https://sawsbid.ionwave.net/SourcingEvents.aspx?SourceType=1",
+    portalUrl: "https://sawsbid.ionwave.net/Login.aspx",
+    level: "Adjacent",
+  },
 ];
 const TEXAS_IONWAVE_SOURCE_BY_NAME = new Map(TEXAS_IONWAVE_SOURCES.map((source) => [source.sourceName, source]));
 const TEXAS_OPENGOV_SOURCES: OpenGovSource[] = [
@@ -245,6 +258,13 @@ const TEXAS_OPENGOV_SOURCES: OpenGovSource[] = [
     portalUrl: "https://procurement.opengov.com/portal/sugarlandtx",
     level: "Local",
   },
+  {
+    sourceName: "Ector County Purchasing",
+    buyer: "Ector County",
+    portalCode: "ectorcountytx",
+    portalUrl: "https://procurement.opengov.com/portal/ectorcountytx",
+    level: "Local",
+  },
 ];
 const TEXAS_OPENGOV_SOURCE_BY_NAME = new Map(TEXAS_OPENGOV_SOURCES.map((source) => [source.sourceName, source]));
 const TENNESSEE_RFP_URL =
@@ -255,12 +275,30 @@ const THE_WOODLANDS_BIDS_URL =
   "https://www.thewoodlandstownship-tx.gov/Departments/Finance/Purchasing-Procurement/Bids";
 const AUSTIN_SOLICITATIONS_URL = "https://financeonline.austintexas.gov/afo/account_services/solicitation/solicitations.cfm";
 const FRISCO_CURRENT_BIDS_URL = "https://www.friscotexas.gov/883/Current-Bids";
+const BEXAR_BIDS_URL = "https://www.bexar.org/Bids.aspx";
+const MIDLAND_COUNTY_RFP_URL = "https://www.co.midland.tx.us/593/Midland-County-Request-for-Proposal";
+const HOUSTON_AIRPORT_SOLICITATIONS_URL =
+  "https://www.fly2houston.com/airport-business/business-partnerships/contracting/solicitations/?pageIndex=1&status=Open";
+const CAPMETRO_PURCHASING_URL = "https://www.capmetro.org/purchasing";
+const VIA_SOLICITATIONS_URL = "https://via.sbecompliance.com/FrontEnd/ProposalSearchPublic.asp?TN=via&XID=2006";
+const HOUSTON_METRO_PROCUREMENT_URL = "https://www.ridemetro.org/about/business-to-business/procurement-opportunities";
+const NTTA_MARKETPLACE_URL = "https://www.nttamarketplace.org/bso/view/search/external/advancedSearchBid.xhtml?openBids=true";
+const AUSTIN_ENERGY_RFPS_URL = "https://austinenergy.com/contractors/working-with-austin-energy/rfps";
 const HANDLED_SOURCE_NAMES = new Set([
   "SAM.gov Contract Opportunities",
   "Texas Electronic State Business Daily",
   "The Woodlands Township Bids",
   "City of Austin Purchasing",
   "City of Frisco Purchasing",
+  "Bexar County Purchasing",
+  "Midland County Purchasing",
+  "Austin-Bergstrom Airport Business",
+  "Houston Airport System Business",
+  "CapMetro Procurement",
+  "VIA Metropolitan Transit Procurement",
+  "Houston METRO Procurement",
+  "North Texas Tollway Authority Procurement",
+  "Austin Energy Vendor Information",
   "Tennessee RFP Opportunities",
   "Tennessee ITB Opportunities",
   ...TEXAS_ESBD_AGENCY_SOURCE_BY_NAME.keys(),
@@ -270,6 +308,40 @@ const HANDLED_SOURCE_NAMES = new Set([
   ...TEXAS_REFERENCE_SOURCE_NAMES,
 ]);
 const SERVER_BLOCKED_SOURCE_NAMES = new Set(["The Woodlands Township Bids"]);
+const PENDING_SOURCE_MESSAGES = new Map<string, string>([
+  [
+    "City of Houston Procurement",
+    "The official City of Houston page sends open solicitations through Beacon, which blocks server-side access with AWS WAF/CAPTCHA. Use Beacon alerts, a vendor account, or an approved browser collector.",
+  ],
+  [
+    "The Woodlands Township Bids",
+    "Official page blocks Vercel/server-side fetching; use a vendor alert/email ingestion or browser collector before marking this source live.",
+  ],
+  [
+    "City of Allen Purchasing",
+    "PublicPurchase shows the agency page, but open bids require login. Connect a vendor account or email-alert ingestion before marking this source live.",
+  ],
+  [
+    "City of Addison Purchasing",
+    "The official page blocks server-side fetching and points procurement through BidNetDirect. Connect BidNetDirect alerts or an approved browser collector.",
+  ],
+  [
+    "Dallas College Supplier Information",
+    "Dallas College now uses a Workday public portal. The app exposes GraphQL, but direct server calls need more tenant/session handling before this can be marked live.",
+  ],
+  [
+    "Capital Area Council of Governments Procurement",
+    "The official CAPCOG page is behind Cloudflare challenge protection from the server environment. Use alerts, email ingestion, or an approved browser collector.",
+  ],
+  [
+    "CPS Energy Procurement and Suppliers",
+    "CPS routes bid opportunities through a Supplier Management/B2GNow portal. A public listing API has not been verified yet; connect portal alerts or credentials.",
+  ],
+  [
+    "Port Houston Procurement",
+    "Port Houston now uses the same Workday public portal pattern. The public frontend is visible, but direct GraphQL calls need more tenant/session handling before this can be marked live.",
+  ],
+]);
 const SAM_SUCCESS_CACHE_MS = 15 * 60 * 1000;
 const SAM_ERROR_CACHE_MS = 2 * 60 * 1000;
 const SAM_RATE_LIMIT_CACHE_MS = 10 * 60 * 1000;
@@ -355,6 +427,19 @@ export async function searchConnectedSources({ query, state, level, sources }: S
     }
 
     if (matchesFilter({ sourceState: source.state, sourceLevel: source.level, state, level })) {
+      const customTexasTask = texasCustomSourceTask(source.source_name, query);
+      if (customTexasTask) {
+        searchedSources.push(source.source_name);
+        removePending(pendingSources, source.source_name);
+        const task = { source: source.source_name, run: customTexasTask };
+        if (source.source_name === "San Antonio Water System Purchasing") {
+          tasks.unshift(task);
+        } else {
+          tasks.push(task);
+        }
+        continue;
+      }
+
       if (source.source_name === "City of Austin Purchasing") {
         searchedSources.push("City of Austin Purchasing");
         removePending(pendingSources, "City of Austin Purchasing");
@@ -448,6 +533,33 @@ export async function searchConnectedSources({ query, state, level, sources }: S
     errors,
     samConfigured,
   };
+}
+
+function texasCustomSourceTask(sourceName: string, query: string): (() => Promise<SearchTaskResult>) | undefined {
+  switch (sourceName) {
+    case "Bexar County Purchasing":
+      return () => searchBexarCountyBids(query);
+    case "Midland County Purchasing":
+      return () => searchMidlandCountyRfps(query);
+    case "Austin-Bergstrom Airport Business":
+      return () => searchAustinBergstromSolicitations(query);
+    case "Houston Airport System Business":
+      return () => searchHoustonAirportSolicitations(query);
+    case "CapMetro Procurement":
+      return () => searchCapMetroProcurement(query);
+    case "VIA Metropolitan Transit Procurement":
+      return () => searchViaProcurement(query);
+    case "Houston METRO Procurement":
+      return () => searchHoustonMetroProcurement(query);
+    case "North Texas Tollway Authority Procurement":
+      return () => searchNttaProcurement(query);
+    case "Austin Energy Vendor Information":
+      return () => searchAustinEnergyRfps(query);
+    case "San Antonio Water System Purchasing":
+      return () => searchSawsProcurement(query);
+    default:
+      return undefined;
+  }
 }
 
 async function searchTheWoodlands(query: string): Promise<{ source: string; results: UnifiedSearchResult[]; error?: string }> {
@@ -1518,8 +1630,40 @@ function openGovProjectToResult(
   };
 }
 
+type AustinSolicitationOptions = {
+  sourceName: string;
+  buyer: string;
+  level: string;
+  sourceType?: string;
+  filterTerms?: string[];
+  submissionInstructions?: string;
+  nextAction?: string;
+};
+
 async function searchAustinSolicitations(query: string): Promise<SearchTaskResult> {
-  const source = "City of Austin Purchasing";
+  return searchAustinSolicitationsForSource(query, {
+    sourceName: "City of Austin Purchasing",
+    buyer: "City of Austin",
+    level: "Local",
+    sourceType: "Austin Finance Online",
+  });
+}
+
+async function searchAustinBergstromSolicitations(query: string): Promise<SearchTaskResult> {
+  return searchAustinSolicitationsForSource(query, {
+    sourceName: "Austin-Bergstrom Airport Business",
+    buyer: "Austin-Bergstrom International Airport / City of Austin",
+    level: "Adjacent",
+    sourceType: "Austin Finance Online airport-related solicitations",
+    filterTerms: ["airport", "aviation", "bergstrom", "aus", "terminal", "airfield"],
+    submissionInstructions:
+      "Open the Austin Finance Online solicitation, confirm that it is airport-related, review attachments and addenda, then submit the eResponse before the response due time.",
+    nextAction: "Open the Austin Finance Online solicitation, confirm airport fit and due date, then route it for human review.",
+  });
+}
+
+async function searchAustinSolicitationsForSource(query: string, options: AustinSolicitationOptions): Promise<SearchTaskResult> {
+  const source = options.sourceName;
   try {
     const response = await fetchPublicPage(AUSTIN_SOLICITATIONS_URL);
     if (!response.ok) {
@@ -1545,6 +1689,7 @@ async function searchAustinSolicitations(query: string): Promise<SearchTaskResul
       results: parseAustinSolicitationDetails(
         detailPages.filter((page): page is { url: string; html: string } => Boolean(page)),
         query,
+        options,
       ),
     };
   } catch (error) {
@@ -1561,16 +1706,25 @@ function extractAustinSolicitationUrls(html: string) {
   return Array.from(urls);
 }
 
-function parseAustinSolicitationDetails(pages: Array<{ url: string; html: string }>, query: string): UnifiedSearchResult[] {
+function parseAustinSolicitationDetails(
+  pages: Array<{ url: string; html: string }>,
+  query: string,
+  options: AustinSolicitationOptions,
+): UnifiedSearchResult[] {
   const terms = conceptTerms(query);
 
   return pages
-    .map((page, index) => austinDetailToResult(page, terms, index))
+    .map((page, index) => austinDetailToResult(page, terms, index, options))
     .filter((result): result is UnifiedSearchResult => Boolean(result))
     .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
 }
 
-function austinDetailToResult(page: { url: string; html: string }, terms: string[], index: number): UnifiedSearchResult | undefined {
+function austinDetailToResult(
+  page: { url: string; html: string },
+  terms: string[],
+  index: number,
+  options: AustinSolicitationOptions,
+): UnifiedSearchResult | undefined {
   const text = htmlToText(page.html);
   const solicitationId = text.match(/Solicitation Number:\s*([A-Z0-9 -]+?)(?=\s+Description:)/i)?.[1]?.trim();
   const description = text.match(/Description:\s*([\s\S]*?)(?=\s+Summary:)/i)?.[1]?.trim();
@@ -1585,6 +1739,11 @@ function austinDetailToResult(page: { url: string; html: string }, terms: string
   const title = [solicitationId, description].filter(Boolean).join(": ") || "City of Austin solicitation";
   const haystack = [title, summary, status].filter(Boolean).join(" ").toLowerCase();
   const score = scoreOpportunity(haystack, terms, 72 - Math.min(index, 35));
+  const requiredSourceTerms = options.filterTerms?.map((term) => term.toLowerCase()) ?? [];
+
+  if (requiredSourceTerms.length > 0 && !requiredSourceTerms.some((term) => haystack.includes(term))) {
+    return undefined;
+  }
 
   if (terms.length > 0 && score <= 0) {
     return undefined;
@@ -1595,14 +1754,14 @@ function austinDetailToResult(page: { url: string; html: string }, terms: string
   }
 
   return {
-    id: `austin:${solicitationId ?? index}:${title}`,
+    id: `austin:${options.sourceName}:${solicitationId ?? index}:${title}`,
     resultType: "opportunity",
     title,
-    buyer: "City of Austin",
-    sourceName: "City of Austin Purchasing",
-    sourceLevel: "Local",
+    buyer: options.buyer,
+    sourceName: options.sourceName,
+    sourceLevel: options.level,
     sourceState: "TX",
-    sourceType: "Austin Finance Online",
+    sourceType: options.sourceType ?? "Austin Finance Online",
     url: page.url,
     portalUrl: AUSTIN_SOLICITATIONS_URL,
     score,
@@ -1611,11 +1770,625 @@ function austinDetailToResult(page: { url: string; html: string }, terms: string
     deadline,
     contact,
     documents,
-    submissionInstructions: "Create or sign into Austin Finance Online, review the solicitation packet and attachments, then submit the eResponse before the response due time.",
+    submissionInstructions:
+      options.submissionInstructions ??
+      "Create or sign into Austin Finance Online, review the solicitation packet and attachments, then submit the eResponse before the response due time.",
     applicationChecklist: applicationChecklist({ hasSolicitationId: Boolean(solicitationId), hasDeadline: Boolean(deadline), hasDocuments: documents.length > 0, hasContact: Boolean(contact) }),
     summary: summary || [solicitationId ? `Solicitation ${solicitationId}.` : "", deadline ? `Response due ${deadline}.` : ""].filter(Boolean).join(" "),
-    nextAction: "Open the Austin Finance Online solicitation, confirm scope and due date, then route it for human review.",
+    nextAction: options.nextAction ?? "Open the Austin Finance Online solicitation, confirm scope and due date, then route it for human review.",
   };
+}
+
+async function searchBexarCountyBids(query: string): Promise<SearchTaskResult> {
+  const source = "Bexar County Purchasing";
+  try {
+    const response = await fetchPublicPage(BEXAR_BIDS_URL);
+    if (!response.ok) {
+      return { source, results: [], error: `Bexar County bids returned ${response.status}` };
+    }
+
+    return { source, results: parseBexarCountyBids(await response.text(), query) };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+function parseBexarCountyBids(html: string, query: string): UnifiedSearchResult[] {
+  if (/there are no open bid postings at this time/i.test(html)) {
+    return [];
+  }
+
+  const terms = conceptTerms(query);
+  const bidSection = html.match(/<div[^>]*class="[^"]*bidItems[^"]*"[^>]*>([\s\S]*?)(?:<\/main>|<\/section>)/i)?.[1] ?? html;
+  const links = Array.from(bidSection.matchAll(/<a\b[^>]*href=(["'])([^"']*Bid[^"']*?)\1[^>]*>([\s\S]*?)<\/a>/gi));
+  const seen = new Set<string>();
+
+  return links
+    .map((link, index): UnifiedSearchResult | undefined => {
+      const title = cleanText(link[3]);
+      const url = safeAbsoluteUrl(decodeHtml(link[2]), BEXAR_BIDS_URL) ?? BEXAR_BIDS_URL;
+      const haystack = [title, "Bexar County purchasing bid rfp solicitation"].join(" ").toLowerCase();
+      const score = scoreOpportunity(haystack, terms, 62 - Math.min(index, 20));
+
+      if (!title || seen.has(url)) {
+        return undefined;
+      }
+      seen.add(url);
+
+      if (terms.length > 0 && score <= 0) {
+        return undefined;
+      }
+
+      return {
+        id: `bexar:${url}`,
+        resultType: "opportunity",
+        title,
+        buyer: "Bexar County",
+        sourceName: "Bexar County Purchasing",
+        sourceLevel: "Local",
+        sourceState: "TX",
+        sourceType: "CivicEngage public bids page",
+        url,
+        portalUrl: BEXAR_BIDS_URL,
+        score,
+        status: "Open/public posting",
+        submissionInstructions: "Open the Bexar County bid posting, download the solicitation packet and addenda, then follow the stated submission instructions.",
+        applicationChecklist: applicationChecklist({ hasSolicitationId: false, hasDeadline: false, hasDocuments: true, hasContact: false }),
+        summary: "Matching public bid link found on the official Bexar County bids page.",
+        nextAction: "Open the Bexar County posting, confirm scope and deadline, then route it for human review.",
+      };
+    })
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+async function searchMidlandCountyRfps(query: string): Promise<SearchTaskResult> {
+  const source = "Midland County Purchasing";
+  try {
+    const response = await fetchPublicPage(MIDLAND_COUNTY_RFP_URL);
+    if (!response.ok) {
+      return { source, results: [], error: `Midland County RFP page returned ${response.status}` };
+    }
+
+    return { source, results: parseMidlandCountyRfps(await response.text(), query) };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+function parseMidlandCountyRfps(html: string, query: string): UnifiedSearchResult[] {
+  const start = html.search(/<h3>Current RFP/i);
+  if (start < 0) {
+    return [];
+  }
+
+  const sectionEnd = html.indexOf("</section>", start);
+  const section = html.slice(start, sectionEnd > start ? sectionEnd : undefined);
+  const terms = conceptTerms(query);
+  const groups = Array.from(section.matchAll(/<h4\b[^>]*>([\s\S]*?)<\/h4>([\s\S]*?)(?=<h4\b|$)/gi));
+
+  return groups
+    .map((group, index): UnifiedSearchResult | undefined => {
+      const title = cleanText(group[1]);
+      const links = Array.from(group[2].matchAll(/<a\b[^>]*href=(["'])(.*?)\1[^>]*>([\s\S]*?)<\/a>/gi)).map((match) => ({
+        url: safeAbsoluteUrl(decodeHtml(match[2]), MIDLAND_COUNTY_RFP_URL) ?? MIDLAND_COUNTY_RFP_URL,
+        label: cleanText(match[3]),
+      }));
+      const solicitationId = title.match(/\b\d{2}MCO\d+\b/i)?.[0];
+      const documents = links.map((link) => link.label).filter(Boolean).slice(0, 8);
+      const haystack = [title, documents.join(" "), "Midland County current RFP"].join(" ").toLowerCase();
+      const score = scoreOpportunity(haystack, terms, 68 - Math.min(index, 20));
+
+      if (!title || links.length === 0) {
+        return undefined;
+      }
+
+      if (terms.length > 0 && score <= 0) {
+        return undefined;
+      }
+
+      return {
+        id: `midland-county:${solicitationId ?? title}`,
+        resultType: "opportunity",
+        title,
+        buyer: "Midland County",
+        sourceName: "Midland County Purchasing",
+        sourceLevel: "Local",
+        sourceState: "TX",
+        sourceType: "Official RFP document list",
+        url: links[0].url,
+        portalUrl: MIDLAND_COUNTY_RFP_URL,
+        score,
+        status: "Current RFP document posted",
+        solicitationId,
+        documents,
+        submissionInstructions: "Open the Midland County RFP documents, download the main packet and addenda, then follow the instructions and deadline stated in the PDF.",
+        applicationChecklist: applicationChecklist({ hasSolicitationId: Boolean(solicitationId), hasDeadline: false, hasDocuments: documents.length > 0, hasContact: false }),
+        summary: `${documents.length} current document${documents.length === 1 ? "" : "s"} listed on Midland County's official RFP page.`,
+        nextAction: "Open the main RFP document, capture the due date and submission method, then route it for human review.",
+      };
+    })
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+async function searchHoustonAirportSolicitations(query: string): Promise<SearchTaskResult> {
+  const source = "Houston Airport System Business";
+  try {
+    const response = await fetchPublicPage(HOUSTON_AIRPORT_SOLICITATIONS_URL);
+    if (!response.ok) {
+      return { source, results: [], error: `Houston Airport solicitations returned ${response.status}` };
+    }
+
+    return { source, results: parseHoustonAirportSolicitations(await response.text(), query) };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+function parseHoustonAirportSolicitations(html: string, query: string): UnifiedSearchResult[] {
+  const decoded = html.replace(/\\"/g, "\"").replace(/\\n/g, " ");
+  const terms = conceptTerms(query);
+  const seen = new Set<string>();
+  const results: UnifiedSearchResult[] = [];
+
+  for (const match of decoded.matchAll(/"contentType":"solicitation"/g)) {
+    const window = decoded.slice(match.index ?? 0, (match.index ?? 0) + 30_000);
+    const solicitationId = jsonishString(window, "solicitationNumber");
+    const title = jsonishString(window, "title");
+    const status = jsonishString(window, "status") ?? "Open";
+    const slug = jsonishString(window, "slug");
+    const proposalDue = formatIsoDateTime(jsonishString(window, "proposalDue"), "America/Chicago");
+    const questionsDue = formatIsoDateTime(jsonishString(window, "questionsDue"), "America/Chicago");
+    const contactName = jsonishString(window, "contactName");
+    const contactEmail = jsonishString(window, "contactEmail");
+    const contactPhone = jsonishString(window, "contactPhone");
+    const projectDescription = jsonishString(window, "projectDescription");
+    const budget = jsonishString(window, "contractAmount")?.replace(/^\$\$/, "$");
+    const documents = Array.from(window.matchAll(/"fields":\{"title":"((?:\\.|[^"\\])*)"/g))
+      .map((documentMatch) => decodeJsonishString(documentMatch[1]))
+      .filter((documentTitle) => documentTitle && documentTitle !== title)
+      .slice(0, 8);
+    const key = solicitationId ?? title;
+
+    if (!key || seen.has(key) || !title || status.toLowerCase() !== "open") {
+      continue;
+    }
+    seen.add(key);
+
+    const haystack = [title, solicitationId, projectDescription, status, documents.join(" "), "Houston Airport System HAS IAH HOU"].filter(Boolean).join(" ").toLowerCase();
+    const score = scoreOpportunity(haystack, terms, 74 - Math.min(results.length, 30));
+
+    if (terms.length > 0 && score <= 0) {
+      continue;
+    }
+
+    if (isPastDeadline(proposalDue)) {
+      continue;
+    }
+
+    results.push({
+      id: `houston-airport:${solicitationId ?? title}`,
+      resultType: "opportunity",
+      title,
+      buyer: "Houston Airport System",
+      sourceName: "Houston Airport System Business",
+      sourceLevel: "Adjacent",
+      sourceState: "TX",
+      sourceType: "Official airport solicitations page",
+      url: slug
+        ? `https://www.fly2houston.com/airport-business/business-partnerships/contracting/solicitations/${slug}`
+        : HOUSTON_AIRPORT_SOLICITATIONS_URL,
+      portalUrl: HOUSTON_AIRPORT_SOLICITATIONS_URL,
+      score,
+      status,
+      solicitationId,
+      deadline: proposalDue,
+      budget,
+      contact: [contactName, contactEmail, contactPhone].filter(Boolean).join(" / "),
+      documents,
+      submissionInstructions: "Open the Houston Airport solicitation page, download all bid documents and addenda, then follow the listed submission and question instructions.",
+      applicationChecklist: applicationChecklist({
+        hasSolicitationId: Boolean(solicitationId),
+        hasDeadline: Boolean(proposalDue),
+        hasDocuments: documents.length > 0,
+        hasContact: Boolean(contactName || contactEmail || contactPhone),
+      }),
+      summary: [projectDescription, questionsDue ? `Questions due ${questionsDue}.` : "", budget ? `Budget/contract amount: ${budget}.` : ""]
+        .filter(Boolean)
+        .join(" "),
+      nextAction: "Open the Houston Airport posting, confirm scope and submission method, then route it for human review.",
+    });
+  }
+
+  return results.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+async function searchCapMetroProcurement(query: string): Promise<SearchTaskResult> {
+  const source = "CapMetro Procurement";
+  try {
+    const response = await fetchPublicPage(CAPMETRO_PURCHASING_URL);
+    if (!response.ok) {
+      return { source, results: [], error: `CapMetro purchasing page returned ${response.status}` };
+    }
+
+    return { source, results: parseCapMetroProcurement(await response.text(), query) };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+function parseCapMetroProcurement(html: string, query: string): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+  const results: UnifiedSearchResult[] = [];
+  const revised = htmlToText(html).match(/Revised\s+(\d{1,2}\/\d{1,2}\/\d{4})/i)?.[1];
+  const noticeDeadline = htmlToText(html).match(/If no responses are received by\s+([^,]+,\s+[A-Za-z]+\s+\d{1,2},\s+\d{4})/i)?.[1];
+  const noticeId = htmlToText(html).match(/Solicitation #:\s*(SSP-\s*\d+)/i)?.[1]?.replace(/\s+/g, "");
+
+  if (noticeId && !isPastDeadline(noticeDeadline)) {
+    const noticeTitle = `${noticeId}: Notice of Intent to Award Sole Source`;
+    const haystack = [noticeTitle, htmlToText(html).slice(0, 2500)].join(" ").toLowerCase();
+    const score = scoreOpportunity(haystack, terms, 63);
+    if (terms.length === 0 || score > 0) {
+      results.push({
+        id: `capmetro:${noticeId}`,
+        resultType: "opportunity",
+        title: noticeTitle,
+        buyer: "CapMetro",
+        sourceName: "CapMetro Procurement",
+        sourceLevel: "Adjacent",
+        sourceState: "TX",
+        sourceType: "Official notice page",
+        url: CAPMETRO_PURCHASING_URL,
+        portalUrl: CAPMETRO_PURCHASING_URL,
+        score,
+        status: "Notice/open response window",
+        solicitationId: noticeId,
+        deadline: noticeDeadline,
+        contact: "Raymond.Lalley@capmetro.org",
+        submissionInstructions: "Email an unsolicited proposal to the listed CapMetro contact before the response deadline if the business can meet the requirement.",
+        applicationChecklist: applicationChecklist({ hasSolicitationId: true, hasDeadline: Boolean(noticeDeadline), hasDocuments: false, hasContact: true }),
+        summary: "CapMetro notice of intent to award sole source; responsible sources may submit an unsolicited proposal before the stated deadline.",
+        nextAction: "Review the notice and decide whether a credible challenge/unsolicited proposal is appropriate.",
+      });
+    }
+  }
+
+  const futureStart = html.search(/Future Procurement Opportunities/i);
+  const futureSection = futureStart >= 0 ? html.slice(futureStart, html.indexOf("</section>", futureStart) > futureStart ? html.indexOf("</section>", futureStart) : undefined) : "";
+  for (const group of futureSection.matchAll(/<strong>([\s\S]*?)<\/strong>[\s\S]*?<ul>([\s\S]*?)<\/ul>/gi)) {
+    const timing = cleanText(group[1]);
+    const items = Array.from(group[2].matchAll(/<li>([\s\S]*?)<\/li>/gi)).map((item) => cleanText(item[1]));
+    for (const [index, title] of items.entries()) {
+      const haystack = [title, timing, "CapMetro future procurement"].join(" ").toLowerCase();
+      const score = scoreOpportunity(haystack, terms, 52 - Math.min(index, 12));
+      if (!title || (terms.length > 0 && (score <= 0 || !hasDirectConceptSignal(haystack, query)))) {
+        continue;
+      }
+
+      results.push({
+        id: `capmetro-forecast:${timing}:${title}`,
+        resultType: "opportunity",
+        title,
+        buyer: "CapMetro",
+        sourceName: "CapMetro Procurement",
+        sourceLevel: "Adjacent",
+        sourceState: "TX",
+        sourceType: "Official procurement forecast",
+        url: CAPMETRO_PURCHASING_URL,
+        portalUrl: CAPMETRO_PURCHASING_URL,
+        score,
+        status: "Forecast/possible future solicitation",
+        postedDate: revised,
+        documents: [`Forecast timing: ${timing}`],
+        submissionInstructions: "Do not submit yet. Watch the CapMetro PlanetBids portal and register for alerts so the official solicitation can be reviewed when advertised.",
+        applicationChecklist: applicationChecklist({ hasSolicitationId: false, hasDeadline: false, hasDocuments: false, hasContact: false }),
+        summary: `CapMetro lists this as a possible future procurement. Forecast timing: ${timing}.`,
+        nextAction: "Add this forecast to the watch list and monitor PlanetBids for the official solicitation.",
+      });
+    }
+  }
+
+  return results.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+async function searchViaProcurement(query: string): Promise<SearchTaskResult> {
+  const source = "VIA Metropolitan Transit Procurement";
+  try {
+    const response = await fetchPublicPage(VIA_SOLICITATIONS_URL);
+    if (!response.ok) {
+      return { source, results: [], error: `VIA public proposal search returned ${response.status}` };
+    }
+
+    return { source, results: parseViaProcurement(await response.text(), query) };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+function parseViaProcurement(html: string, query: string): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+  const tiles = Array.from(html.matchAll(/<a class='RecordTile' href="javascript:\s*ViewDetail\('([^']+)'\)">([\s\S]*?)(?=<a class='RecordTile'|<\/form>)/gi));
+
+  return tiles
+    .map((tile, index): UnifiedSearchResult | undefined => {
+      const detailId = tile[1];
+      const tileHtml = tile[2];
+      const deadline = cleanText(tileHtml.match(/<div class='DateDue'><div class='Label'>Due<\/div>([\s\S]*?)<\/div>/i)?.[1] ?? "");
+      const status = cleanText(tileHtml.match(/<div class='Status'[^>]*><strong>([\s\S]*?)<\/strong><\/div>/i)?.[1] ?? "Open");
+      const description = cleanText(tileHtml.match(/<div class='Status'[^>]*>[\s\S]*?<\/div>([\s\S]*?)<\/div>\s*<div style=/i)?.[1] ?? "");
+      const solicitationId = description.match(/^([A-Z0-9-]+)\s+-/i)?.[1];
+      const haystack = [description, solicitationId, status, "VIA Metropolitan Transit procurement"].filter(Boolean).join(" ").toLowerCase();
+      const score = scoreOpportunity(haystack, terms, 70 - Math.min(index, 20));
+
+      if (!description || (terms.length > 0 && score <= 0)) {
+        return undefined;
+      }
+
+      if (isPastDeadline(deadline)) {
+        return undefined;
+      }
+
+      return {
+        id: `via:${detailId}`,
+        resultType: "opportunity",
+        title: description,
+        buyer: "VIA Metropolitan Transit",
+        sourceName: "VIA Metropolitan Transit Procurement",
+        sourceLevel: "Adjacent",
+        sourceState: "TX",
+        sourceType: "SBE public proposal search",
+        url: `https://via.sbecompliance.com/FrontEnd/ProposalSearchPublicDetail.asp?XID=1136&TN=via&PID=${encodeURIComponent(detailId)}`,
+        portalUrl: VIA_SOLICITATIONS_URL,
+        score,
+        status,
+        solicitationId,
+        deadline,
+        submissionInstructions: "Open the VIA proposal detail page, download all documents and addenda, then follow the stated submission method and close time.",
+        applicationChecklist: applicationChecklist({ hasSolicitationId: Boolean(solicitationId), hasDeadline: Boolean(deadline), hasDocuments: true, hasContact: false }),
+        summary: [solicitationId ? `Reference ${solicitationId}.` : "", deadline ? `Due ${deadline}.` : ""].filter(Boolean).join(" "),
+        nextAction: "Open the VIA detail page, confirm fit and due date, then route it for human review.",
+      };
+    })
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+async function searchHoustonMetroProcurement(query: string): Promise<SearchTaskResult> {
+  const source = "Houston METRO Procurement";
+  try {
+    const response = await fetchPublicPage(HOUSTON_METRO_PROCUREMENT_URL);
+    if (!response.ok) {
+      return { source, results: [], error: `Houston METRO procurement page returned ${response.status}` };
+    }
+
+    return { source, results: parseHoustonMetroProcurement(await response.text(), query) };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+function parseHoustonMetroProcurement(html: string, query: string): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+  const results: UnifiedSearchResult[] = [];
+
+  for (const [index, row] of Array.from(
+    html.matchAll(/<tr>\s*<td scope="row"><a href="([^"]+)"[^>]*>([\s\S]*?)<\/a><\/td>\s*<td>([\s\S]*?)<\/td>\s*<td>([\s\S]*?)<\/td>\s*<\/tr>/gi),
+  ).entries()) {
+    const url = decodeHtml(row[1]);
+    const solicitationId = cleanText(row[2]);
+    const title = cleanText(row[3]);
+    const deadline = cleanText(row[4]);
+    const haystack = [title, solicitationId, deadline, "Houston METRO Bonfire procurement"].join(" ").toLowerCase();
+    const score = scoreOpportunity(haystack, terms, 73 - Math.min(index, 20));
+
+    if (!title || (terms.length > 0 && score <= 0) || isPastDeadline(deadline)) {
+      continue;
+    }
+
+    results.push({
+      id: `houston-metro-open:${solicitationId}:${title}`,
+      resultType: "opportunity",
+      title: [solicitationId, title].filter(Boolean).join(": "),
+      buyer: "Houston METRO",
+      sourceName: "Houston METRO Procurement",
+      sourceLevel: "Adjacent",
+      sourceState: "TX",
+      sourceType: "Official open procurements table",
+      url,
+      portalUrl: HOUSTON_METRO_PROCUREMENT_URL,
+      score,
+      status: "Open public opportunity",
+      solicitationId,
+      deadline,
+      submissionInstructions: "Open the METRO opportunity, register in the listed portal if required, download all documents and addenda, then submit before the close date.",
+      applicationChecklist: applicationChecklist({ hasSolicitationId: Boolean(solicitationId), hasDeadline: Boolean(deadline), hasDocuments: true, hasContact: false }),
+      summary: deadline ? `Closes ${deadline}.` : "Open procurement listed by Houston METRO.",
+      nextAction: "Open the METRO posting, confirm scope and submission rules, then route it for human review.",
+    });
+  }
+
+  const forecastRows = Array.from(html.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi))
+    .map((row) => Array.from(row[1].matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)).map((cell) => cleanText(cell[1])))
+    .filter((cells) => cells.length === 2 && /^(IFB|RFP|RFQ|RFTP|DIR|TBD)$/i.test(cells[1]));
+
+  for (const [index, row] of forecastRows.entries()) {
+    const title = row[0];
+    const method = row[1];
+    const haystack = [title, method, "Houston METRO anticipated procurement forecast"].join(" ").toLowerCase();
+    const score = scoreOpportunity(haystack, terms, 55 - Math.min(index, 30));
+
+    if (!title || (terms.length > 0 && (score <= 0 || !hasDirectConceptSignal(haystack, query)))) {
+      continue;
+    }
+
+    results.push({
+      id: `houston-metro-forecast:${method}:${title}`,
+      resultType: "opportunity",
+      title,
+      buyer: "Houston METRO",
+      sourceName: "Houston METRO Procurement",
+      sourceLevel: "Adjacent",
+      sourceState: "TX",
+      sourceType: "Official anticipated procurement forecast",
+      url: HOUSTON_METRO_PROCUREMENT_URL,
+      portalUrl: HOUSTON_METRO_PROCUREMENT_URL,
+      score,
+      status: "Forecast/anticipated procurement",
+      documents: [`Procurement method: ${method}`],
+      submissionInstructions: "Do not submit yet. Monitor the METRO open procurements table and vendor portal until the official solicitation is released.",
+      applicationChecklist: applicationChecklist({ hasSolicitationId: false, hasDeadline: false, hasDocuments: false, hasContact: false }),
+      summary: `Houston METRO lists this as an anticipated procurement. Expected method: ${method}.`,
+      nextAction: "Add this forecast to the watch list and monitor Houston METRO for the official posting.",
+    });
+  }
+
+  return dedupeResults(results).sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+async function searchNttaProcurement(query: string): Promise<SearchTaskResult> {
+  const source = "North Texas Tollway Authority Procurement";
+  try {
+    const response = await fetchPublicPage(NTTA_MARKETPLACE_URL);
+    if (!response.ok) {
+      return { source, results: [], error: `NTTA marketplace returned ${response.status}` };
+    }
+
+    return { source, results: parseNttaProcurement(await response.text(), query) };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+function parseNttaProcurement(html: string, query: string): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+  const rows = Array.from(html.matchAll(/<tr\b[^>]*data-ri="[^"]*"[^>]*>([\s\S]*?)<\/tr>/gi));
+
+  return rows
+    .map((row, index): UnifiedSearchResult | undefined => {
+      const cells = Array.from(row[1].matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)).map((cell) => cell[1]);
+      if (cells.length < 11) {
+        return undefined;
+      }
+
+      const linkMatch = cells[0].match(/<a\b[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
+      const solicitationId = cleanText(linkMatch?.[2] ?? cells[0]);
+      const buyer = cleanText(cells[2]) || "North Texas Tollway Authority";
+      const contact = cleanText(cells[5]);
+      const title = cleanText(cells[6]);
+      const deadline = cleanText(cells[7]);
+      const status = cleanText(cells[10]) || "Open";
+      const url = linkMatch ? safeAbsoluteUrl(decodeHtml(linkMatch[1]), NTTA_MARKETPLACE_URL) ?? NTTA_MARKETPLACE_URL : NTTA_MARKETPLACE_URL;
+      const haystack = [title, solicitationId, buyer, contact, status].filter(Boolean).join(" ").toLowerCase();
+      const score = scoreOpportunity(haystack, terms, 71 - Math.min(index, 20));
+
+      if (!title || (terms.length > 0 && score <= 0) || isPastDeadline(deadline)) {
+        return undefined;
+      }
+
+      return {
+        id: `ntta:${solicitationId}:${title}`,
+        resultType: "opportunity",
+        title: [solicitationId, title].filter(Boolean).join(": "),
+        buyer,
+        sourceName: "North Texas Tollway Authority Procurement",
+        sourceLevel: "Adjacent",
+        sourceState: "TX",
+        sourceType: "Bidsync public open-bids table",
+        url,
+        portalUrl: NTTA_MARKETPLACE_URL,
+        score,
+        status,
+        solicitationId,
+        deadline,
+        contact,
+        submissionInstructions: "Open the NTTA marketplace bid detail page, register or sign in if required, download documents and addenda, then submit before the bid opening date.",
+        applicationChecklist: applicationChecklist({ hasSolicitationId: Boolean(solicitationId), hasDeadline: Boolean(deadline), hasDocuments: true, hasContact: Boolean(contact) }),
+        summary: [contact ? `Buyer: ${contact}.` : "", deadline ? `Bid opening ${deadline}.` : ""].filter(Boolean).join(" "),
+        nextAction: "Open the NTTA bid detail page, confirm scope and submission rules, then route it for human review.",
+      };
+    })
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+async function searchSawsProcurement(query: string): Promise<SearchTaskResult> {
+  const source = TEXAS_IONWAVE_SOURCE_BY_NAME.get("San Antonio Water System Purchasing");
+  if (!source) {
+    return { source: "San Antonio Water System Purchasing", results: [], error: "SAWS IonWave source is not configured" };
+  }
+
+  try {
+    let response = await fetchPublicPage(source.currentBidsUrl);
+    if (response.status === 429) {
+      await delay(5500);
+      response = await fetchPublicPage(source.currentBidsUrl);
+    }
+
+    if (!response.ok) {
+      return { source: source.sourceName, results: [], error: `SAWS public bid table returned ${response.status}` };
+    }
+
+    return { source: source.sourceName, results: parseIonWaveRows(await response.text(), query, source) };
+  } catch (error) {
+    return { source: source.sourceName, results: [], error: errorMessage(error) };
+  }
+}
+
+async function searchAustinEnergyRfps(query: string): Promise<SearchTaskResult> {
+  const source = "Austin Energy Vendor Information";
+  try {
+    const response = await fetchPublicPage(AUSTIN_ENERGY_RFPS_URL);
+    if (!response.ok) {
+      return { source, results: [], error: `Austin Energy RFP page returned ${response.status}` };
+    }
+
+    return { source, results: parseAustinEnergyRfps(await response.text(), query) };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+function parseAustinEnergyRfps(html: string, query: string): UnifiedSearchResult[] {
+  const start = html.search(/Current RFPs Available from Austin Energy/i);
+  const section = start >= 0 ? html.slice(start, html.indexOf("Date last reviewed", start) > start ? html.indexOf("Date last reviewed", start) : undefined) : html;
+  const terms = conceptTerms(query);
+  const entries = Array.from(section.matchAll(/<h3>([\s\S]*?)<\/h3>\s*<p>([\s\S]*?)<\/p>\s*<p><a\b[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi));
+
+  return entries
+    .map((entry, index): UnifiedSearchResult | undefined => {
+      const title = cleanText(entry[1]);
+      const summary = cleanText(entry[2]);
+      const url = safeAbsoluteUrl(decodeHtml(entry[3]), AUSTIN_ENERGY_RFPS_URL) ?? AUSTIN_ENERGY_RFPS_URL;
+      const haystack = [title, summary, "Austin Energy RFP renewable energy resource"].join(" ").toLowerCase();
+      const score = scoreOpportunity(haystack, terms, 61 - Math.min(index, 20));
+
+      if (!title || (terms.length > 0 && (score <= 0 || !hasDirectConceptSignal(haystack, query)))) {
+        return undefined;
+      }
+
+      return {
+        id: `austin-energy:${title}`,
+        resultType: "opportunity",
+        title,
+        buyer: "Austin Energy / City of Austin",
+        sourceName: "Austin Energy Vendor Information",
+        sourceLevel: "Adjacent",
+        sourceState: "TX",
+        sourceType: "Official Austin Energy RFP page",
+        url,
+        portalUrl: AUSTIN_ENERGY_RFPS_URL,
+        score,
+        status: "Current RFP page listing",
+        documents: ["RFP detail page"],
+        submissionInstructions: "Open the Austin Energy RFP detail page, download the full RFP materials, then follow the stated submission instructions and due date.",
+        applicationChecklist: applicationChecklist({ hasSolicitationId: false, hasDeadline: false, hasDocuments: true, hasContact: false }),
+        summary,
+        nextAction: "Open the Austin Energy RFP detail page, capture the deadline and submission method, then route it for human review.",
+      };
+    })
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
 }
 
 async function searchFriscoCurrentBids(query: string): Promise<SearchTaskResult> {
@@ -1950,6 +2723,11 @@ function isPendingConnectorIssue(error: string) {
 }
 
 function pendingSourceMessage(sourceName: string) {
+  const sourceSpecificMessage = PENDING_SOURCE_MESSAGES.get(sourceName);
+  if (sourceSpecificMessage) {
+    return sourceSpecificMessage;
+  }
+
   if (/sam\.gov/i.test(sourceName)) {
     return "Listed but not searched because the SAM.gov API key is not configured in this environment.";
   }
@@ -2012,6 +2790,35 @@ function scoreOpportunity(haystack: string, terms: string[], baseScore: number) 
   );
 
   return phraseScore + termScore > 0 ? phraseScore + termScore + strategicScore + baseScore : 0;
+}
+
+function hasDirectConceptSignal(haystack: string, query: string) {
+  const normalizedQuery = query.toLowerCase().replace(/[^\w\s-]/g, " ").replace(/\s+/g, " ").trim();
+  if (!normalizedQuery) {
+    return true;
+  }
+
+  if (normalizedQuery.includes(" ") && haystack.includes(normalizedQuery)) {
+    return true;
+  }
+
+  const directTokens = normalizedQuery
+    .split(/\s+/)
+    .filter((term) => term.length > 2 && !["development", "professional", "services", "service"].includes(term));
+
+  if (directTokens.some((term) => haystack.includes(term))) {
+    return true;
+  }
+
+  if (directTokens.includes("training") && /\b(learning|education|instructional|workshop|course|curriculum|facilitation)\b/i.test(haystack)) {
+    return true;
+  }
+
+  if (directTokens.includes("leadership") && /\b(leader|executive|supervisor|supervisory|coaching)\b/i.test(haystack)) {
+    return true;
+  }
+
+  return false;
 }
 
 function resultRankScore(result: UnifiedSearchResult) {
@@ -2169,6 +2976,39 @@ function formatOpenGovDate(value?: string) {
     year: "numeric",
     timeZone: "America/Chicago",
   });
+}
+
+function formatIsoDateTime(value?: string, timeZone = "America/Chicago") {
+  if (!value) {
+    return undefined;
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return parsed.toLocaleString("en-US", {
+    month: "numeric",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone,
+  });
+}
+
+function jsonishString(window: string, key: string) {
+  const match = window.match(new RegExp(`"${key}":"((?:\\\\.|[^"\\\\])*)"`, "i"));
+  return match ? decodeJsonishString(match[1]) : undefined;
+}
+
+function decodeJsonishString(value: string) {
+  try {
+    return cleanText(JSON.parse(`"${value.replace(/"/g, "\\\"")}"`) as string);
+  } catch {
+    return cleanText(value.replace(/\\n/g, " ").replace(/\\\\/g, "\\"));
+  }
 }
 
 function findJsonArrayEnd(value: string, startIndex: number) {
