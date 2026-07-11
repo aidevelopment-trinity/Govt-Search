@@ -41,6 +41,8 @@ type SavedProposal = {
 const levelOptions = ["All", "Federal", "State", "Local", "Adjacent", "Education"];
 const defaultTerms = ["leadership development", "management training", "supervisor training", "organizational development", "executive coaching"];
 const lastSearchStorageKey = "gov-contract-finder:last-search";
+const lastSearchStorageVersion = "source-connections-2026-07-10-v3";
+const lastSearchMaxAgeMs = 6 * 60 * 60 * 1000;
 const qualityModes = [
   { value: "focused", label: "Focused" },
   { value: "strict", label: "Strict" },
@@ -50,6 +52,7 @@ const qualityModes = [
 type QualityMode = (typeof qualityModes)[number]["value"];
 
 type LastSearchState = {
+  version: string;
   query: string;
   state: string;
   level: string;
@@ -107,6 +110,8 @@ export function GovContractsShell({
   const hasSearched = searchResponse.searchedSources.length > 0 || searchResponse.errors.length > 0;
   const statesCount = new Set(sources.map((source) => source.state)).size;
   const sourceIssueCount = sourceStatuses.filter((status) => status.status !== "ok").length;
+  const cacheMetric = cacheMetricValue(searchResponse, hasSearched);
+  const searchNote = latestSearchNote(searchResponse, hasSearched, searchBusy);
   const runSummary = hasSearched
     ? `${qualityFilteredResults.length} shown / ${searchResponse.counts.opportunities} found · ${searchResponse.counts.connected} sources searched · ${sourceIssueCount} source ${
         sourceIssueCount === 1 ? "issue" : "issues"
@@ -124,6 +129,7 @@ export function GovContractsShell({
     }
 
     saveLastSearch({
+      version: lastSearchStorageVersion,
       query: searchResponse.query,
       state: lastSearchFilters.state,
       level: lastSearchFilters.level,
@@ -148,7 +154,10 @@ export function GovContractsShell({
       }
 
       const cached = JSON.parse(rawValue) as Partial<LastSearchState>;
-      if (!cached.query || !cached.searchResponse?.results || !cached.searchResponse.counts) {
+      const savedAtMs = cached.savedAt ? Date.parse(cached.savedAt) : Number.NaN;
+      const isExpired = !Number.isFinite(savedAtMs) || Date.now() - savedAtMs > lastSearchMaxAgeMs;
+      if (cached.version !== lastSearchStorageVersion || isExpired || !cached.query || !cached.searchResponse?.results || !cached.searchResponse.counts) {
+        window.sessionStorage.removeItem(lastSearchStorageKey);
         return;
       }
 
@@ -158,7 +167,13 @@ export function GovContractsShell({
       setQualityMode(cached.qualityMode ?? "focused");
       setLastSearchFilters({ state: cached.state ?? "All", level: cached.level ?? "All" });
       setSelectedSource(cached.selectedSource ?? "All");
-      setSearchResponse({ ...cached.searchResponse, sourceStatuses: cached.searchResponse.sourceStatuses ?? [] });
+      setSearchResponse({
+        ...cached.searchResponse,
+        cached: false,
+        restoredFromSession: true,
+        cacheAgeMs: Date.now() - savedAtMs,
+        sourceStatuses: cached.searchResponse.sourceStatuses ?? [],
+      });
     } catch {
       window.sessionStorage.removeItem(lastSearchStorageKey);
     }
@@ -219,9 +234,10 @@ export function GovContractsShell({
       }
       const response = await fetch(`/api/gov/search?${params.toString()}`, { signal: controller.signal });
       const data = (await response.json()) as UnifiedSearchResponse;
-      const normalizedData = { ...data, sourceStatuses: data.sourceStatuses ?? [] };
+      const normalizedData = { ...data, restoredFromSession: false, sourceStatuses: data.sourceStatuses ?? [] };
       setSearchResponse(normalizedData);
       saveLastSearch({
+        version: lastSearchStorageVersion,
         query: concept,
         state: searchFilters.state,
         level: searchFilters.level,
@@ -383,11 +399,7 @@ export function GovContractsShell({
                   <span className="rounded-md border border-line bg-slate-50 px-2 py-1 text-xs text-slate-600">{runSummary}</span>
                 </div>
                 <p className="mt-1 text-sm text-slate-500">
-                  {searchBusy
-                    ? "Searching connected sources..."
-                    : hasSearched
-                      ? `Latest search: "${searchResponse.query}"${searchResponse.cached ? ` · cached ${formatDuration(searchResponse.cacheAgeMs)} ago` : ""}`
-                      : "Run a search to see matching opportunities."}
+                  {searchNote}
                 </p>
               </div>
               <div className="inline-flex items-center gap-2 rounded-md border border-line px-3 py-2 text-sm text-slate-600">
@@ -522,7 +534,7 @@ export function GovContractsShell({
               <Metric label="Searched" value={searchResponse.counts.connected.toString()} />
               <Metric label="Pending" value={searchResponse.counts.pending.toString()} />
               <Metric label="States" value={statesCount.toString()} />
-              <Metric label="Cache" value={hasSearched ? (searchResponse.cached ? "Hit" : "Fresh") : "-"} />
+              <Metric label="Cache" value={cacheMetric} />
               <Metric label="Time" value={hasSearched ? formatDuration(searchResponse.elapsedMs) : "-"} />
             </div>
             {searchResponse.searchedSources.length > 0 && !searchResponse.configured ? (
@@ -864,6 +876,35 @@ function formatDuration(ms?: number) {
   }
 
   return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
+}
+
+function cacheMetricValue(searchResponse: UnifiedSearchResponse, hasSearched: boolean) {
+  if (!hasSearched) {
+    return "-";
+  }
+
+  if (searchResponse.restoredFromSession) {
+    return "Restored";
+  }
+
+  return searchResponse.cached ? "Hit" : "Fresh";
+}
+
+function latestSearchNote(searchResponse: UnifiedSearchResponse, hasSearched: boolean, searchBusy: boolean) {
+  if (searchBusy) {
+    return "Searching connected sources...";
+  }
+
+  if (!hasSearched) {
+    return "Run a search to see matching opportunities.";
+  }
+
+  const ageNote =
+    searchResponse.restoredFromSession || searchResponse.cached
+      ? ` · ${searchResponse.restoredFromSession ? "restored" : "cached"} ${formatDuration(searchResponse.cacheAgeMs)} ago`
+      : "";
+
+  return `Latest search: "${searchResponse.query}"${ageNote}`;
 }
 
 function Select({

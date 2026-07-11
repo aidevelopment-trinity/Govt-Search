@@ -56,6 +56,7 @@ export type UnifiedSearchResponse = {
   query: string;
   configured: boolean;
   cached?: boolean;
+  restoredFromSession?: boolean;
   cacheAgeMs?: number;
   elapsedMs?: number;
   completedAt?: string;
