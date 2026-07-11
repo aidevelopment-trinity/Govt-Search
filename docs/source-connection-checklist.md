@@ -1,107 +1,79 @@
 # Source Connection Checklist
 
-Generated from the production search for `leadership training` across all states/levels.
+Generated from local verification of `leadership training` across all states and levels.
 
-## Summary
+## Current Status
 
-- Latest local verification for `leadership training`: 102 searched, 99 raw results, 21 directory-pending, 0 hard errors.
-- Default Focused quality view shows 3 higher-quality matches for `leadership training`; the other raw results are weak matches hidden unless Broad is selected.
-- Source health currently shows 95 `ok` rows and 28 `pending` rows because temporary rate limits/timeouts are included in health.
-- Reference-only/vendor setup/award-history pages are no longer counted as broken live-opportunity connectors.
-- Production needs a fresh Vercel deployment after this checklist update is pushed.
+- Latest all-source local verification: 121 searched, 120 returned results, 2 directory-pending sources, 0 hard errors.
+- Run status pending sources are now true unresolved connectors only:
+  - Capital Area Council of Governments Procurement
+  - Equalis Group Current Solicitations
+- Source health can still show temporary IonWave cooldown rows during a full run. Those sources are wired, but the IonWave platform can return 429/challenge pages when many IonWave portals are searched in one burst.
+- The production build passes with the current connector code.
 
-## Active Work
+## Newly Wired In This Pass
 
-1. Acquisition.gov
-   - Status: Resolved.
-   - Current finding: reference-only FAR/acquisition policy site, not a live opportunity feed.
-   - Action: remove from pending opportunity-source count and keep as reference-only support source.
-2. Arapahoe County Purchasing
-   - Status: Wired and locally verified.
-   - Current finding: official county purchasing page sends current solicitations to BidNet Direct / Rocky Mountain E-Purchasing.
-   - Action: added a public BidNet open-bids connector that parses solicitation ID, title, posted date, closing date, detail URL, and document access instructions.
-   - Verification: `leadership training` returned an Arapahoe result and status `ok`; `housing` returned `Housing Action Plan Consultant`, solicitation `26-34`, due `07/13/2026`.
-3. Bexar County Purchasing
-   - Status: Wired and locally verified.
-   - Current finding: official CivicEngage bid page is server-readable and currently says there are no open bid postings.
-   - Action: removed the stale server-blocked skip so the system checks the official page live.
-   - Verification: `leadership training` for Texas local sources returned Bexar status `ok`, 0 results, 624ms.
-4. Boulder County Purchasing
-   - Status: Wired and locally verified.
-   - Current finding: official county page publishes a current solicitations chart with Bonfire/Euna document links.
-   - Action: added a public table connector that parses due date, solicitation number, title, department, and stable Bonfire detail URL.
-   - Verification: `vehicle` for Colorado local sources returned `Police Vehicle Equipment Upfitter`, solicitation `RFP-298-26`, due `07/17/2026 2:00 pm`.
-5. Broward County Purchasing
-   - Status: Wired and locally verified.
-   - Current finding: official county purchasing page moved solicitations to BPRO, powered by Bonfire.
-   - Action: made the shared Bonfire connector state-aware and added Broward as a Florida local source.
-   - Verification: `management` for Florida local sources returned 4 Broward opportunities, including `Parking Management Services for Fort Lauderdale-Hollywood International Airport`, solicitation `GEN2130575P1`, due `2026-07-22 18:00:00`.
-6. Capital Area Council of Governments Procurement
-   - Status: Investigated; still blocked.
-   - Current finding: official page has RFP content, but direct server requests are blocked by Cloudflare.
-   - Checked endpoints: page, WordPress REST page/search, feed, sitemap, and site search all returned 403 from server-side fetches.
-   - Required resolution: email-alert ingestion, approved browser collector, or CAPCOG allowlisting/API access. Do not count as wired until one of those paths is in place.
-7. City and County of Denver Bidding Opportunities
-   - Status: Wired and locally verified.
-   - Current finding: official Denver current-bidding page is server-readable and publishes open solicitation cards.
-   - Action: added a parser for title, reference number, closing date, status, description, and detail URL.
-   - Verification: `park` for Colorado local sources returned `RFQ: Park Hill Park Design`, solicitation `Solicitation No. 202684823`, due `August 13, 2026, 02:00 PM`.
-8. City of Addison Purchasing
-   - Status: Wired and locally verified.
-   - Current finding: official Addison page points current bids to BidNetDirect, and the public BidNet agency slug is `townofaddison`.
-   - Action: added a BidNet connector for Addison using the shared BidNet parser.
-   - Verification: `tourism` for Texas local sources returned `Tourism Public Relations Services`, solicitation `26-232`, due `08/04/2026`.
-9. City of Allen Purchasing
-   - Status: Investigated; still blocked for production runtime.
-   - Current finding: official eBid is IonWave and public rows exist, but Node/server fetch receives an IonWave/Cloudflare 429 challenge while browser/curl can read the page.
-   - Checked endpoint: `https://allentx.ionwave.net/SourcingEvents.aspx?SourceType=1`.
-   - Required resolution: approved browser collector, vendor alert ingestion, or official API/feed access. Do not count as wired until the app runtime gets an `ok` result.
-10. Colorado/Fulton/Tampa connector batch
-   - Status: Wired and locally verified.
-   - Sources added: City of Aurora, City of Colorado Springs, City of Fort Collins, Denver Public Schools, Douglas County CO, RTD, University of Colorado, Fulton County, and City of Tampa.
-   - Platforms: BidNet Direct / Rocky Mountain E-Purchasing, OpenGov.
-   - Verification examples: Aurora `firing range`, DPS `custodial services`, CU `billing tool`, Fulton `disaster bags`, Tampa `services`, RTD `leadership training`.
-11. Public connector batch 2
-   - Status: Wired and locally verified.
-   - Sources added: City of Charlotte, Cobb County, City of Orlando, Orange County FL, Hillsborough County, Miami-Dade County, and Gwinnett County.
-   - Platforms/endpoints: Bonfire, OpenGov embed feeds, DemandStar agency feed, Miami-Dade JSON feeds, and Gwinnett official solicitations page.
-   - Verification examples: Charlotte `charlotte` returned 44 Bonfire rows with document links; Cobb `cobb` returned 9 OpenGov rows; Orlando `orlando` returned 10 OpenGov rows; Orange County `orange` returned 10 OpenGov rows; Miami-Dade `miami` returned 34 current/future rows; Gwinnett `gwinnett` returned 18 rows with notice/addendum links.
-   - Hillsborough note: DemandStar feed is reachable and status is `ok`, but the public feed currently contains no future/open rows after deadline filtering; latest 100 rows are under evaluation or past due.
-12. Static official-page batch
-   - Status: Wired and locally verified.
-   - Sources added: CDOT future bidding, Shelby County bids listing, Tennessee Board of Regents procurement opportunities, University of Florida bid schedule.
-   - Note: these may correctly return zero results when the public page has no matching/open posting.
+1. Colorado Vendor Self Service
+   - Platform: Advantage VSS public published-solicitations feed.
+   - Verified with `leadership training`; returned `Chronic Disease Assessment, Planning and Training`.
+2. Colorado VSS Published Solicitations
+   - Platform: same Advantage VSS feed as Colorado VSS.
+   - Verified as connected through the shared VSS fetch and parser.
+3. Colorado Department of Human Services Procurement
+   - Platform: Colorado VSS with CDHS department filtering.
+   - Verified with `treatment`; returned `RFP for Sex Offender Treatment Services`.
+4. Palm Beach County Purchasing
+   - Platform: Palm Beach County Advantage VSS.
+   - Verified with `services`; returned active Palm Beach rows and VSS document-access links.
+5. Mecklenburg County Vendor Opportunities
+   - Platform: MeckProcure/Advantage VSS.
+   - Verified with `tire`; returned `Scrap Tire Collection and Recycling Services RFP`.
+6. The Woodlands Township Bids
+   - Platform: official Township open-bids page with official Visit The Woodlands fallback when the Township host blocks Vercel.
+   - Verified with `media`; returned the integrated creative/media agency RFP and a direct PDF document link.
+7. City of Allen Purchasing
+   - Platform: DemandStar public agency feed.
+   - Verified as searched with status `ok`; current matching test terms may return zero because available rows are not active/future matches.
+8. CPS Energy Procurement and Suppliers
+   - Platform: CPS Energy B2GNow public proposal search.
+   - Verified with `supply`; returned 11 active proposal rows with detail/document links.
 
-## Needs Connector Or Resolution
+## Previously Wired And Still Working
+
+- Texas ESBD
+- SAM.gov, when a valid key/quota is available
+- GSA Forecast of Contracting Opportunities
+- Georgia Procurement Registry
+- North Carolina eVP, City of Raleigh, and Wake County filtering
+- City of Atlanta and Metro Nashville Oracle Negotiation Abstracts
+- City of Houston and City of Memphis Beacon portals
+- BidNet/Rocky Mountain E-Purchasing sources already connected for Colorado and Georgia
+- Bonfire, OpenGov, DemandStar, Miami-Dade, Gwinnett, Tennessee, and static official-page sources already connected in prior passes
+
+## Remaining True Blockers
 
 1. Capital Area Council of Governments Procurement
-2. City of Allen Purchasing
-3. City of Atlanta Procurement
-4. City of Houston Procurement
-5. City of Memphis Purchasing
-6. City of Raleigh Current Bidding Opportunities
-7. Colorado Department of Human Services Procurement
-8. Colorado State University Procurement Services
-9. Colorado Vendor Self Service
-10. Colorado VSS Published Solicitations
-11. CPS Energy Procurement and Suppliers
-12. Denver International Airport Business Opportunities
-13. Equalis Group Current Solicitations
-14. Georgia Procurement Registry
-15. GSA Forecast of Contracting Opportunities
-16. Mecklenburg County Vendor Opportunities
-17. Metro Nashville Procurement
-18. North Carolina eVP Solicitations
-19. Palm Beach County Purchasing
-20. The Woodlands Township Bids
-21. Wake County Procurement Services
+   - Official page: `https://www.capcog.org/about/do-business-with-us/`
+   - Finding: server-side requests to the page, WordPress REST API, search, feed, and sitemap paths return Cloudflare 403.
+   - Important nuance: exact CAPCOG PDF URLs are fetchable if already known, but the server cannot fetch a reliable official index of current opportunities.
+   - Needed path: email-alert ingestion, CAPCOG allowlisting/API access, or an approved browser collector.
+2. Equalis Group Current Solicitations
+   - Official page: `https://equalisgroup.org/current-solicitations/`
+   - Finding: server-side requests to the page and WordPress REST/API paths return Cloudflare challenge pages.
+   - Needed path: Equalis alert/email ingestion, allowlisting/API access, or an approved browser collector.
 
-## Wired But Temporarily Rate-Limited
+## Wired But Sometimes Throttled
 
-1. City of Georgetown Purchasing
-2. City of Irving Purchasing
-3. Goodbuy Purchasing Cooperative Bid Opportunities
-4. Houston ISD Procurement
-5. Lone Star College Purchasing
-6. SAM.gov Contract Opportunities
-7. TIPS-USA Cooperative Bid Opportunities
+These are connected, but may show temporary source-health pending rows if IonWave rate-limits the live run:
+
+1. City of Denton Purchasing
+2. City of Georgetown Purchasing
+3. City of Irving Purchasing
+4. City of Plano Purchasing
+5. Tarrant County Purchasing
+6. Goodbuy Purchasing Cooperative Bid Opportunities
+7. Houston ISD Procurement
+8. Lone Star College Purchasing
+9. TIPS-USA Cooperative Bid Opportunities
+
+The app now starts IonWave searches first, queues them through a single platform-wide queue, and uses the corrected Denton public-bids URL. If IonWave still returns 429/challenge pages, the correct next improvement is a scheduled source snapshot job or approved browser/email collector, not pretending the live server fetch succeeded.

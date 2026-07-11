@@ -121,10 +121,10 @@ These sources still need source-specific connector work. The next pass should id
 - City of Sugar Land Purchasing: wired through OpenGov public open-project portal.
 - City of Round Rock Purchasing: wired through Bonfire.
 - City of McKinney Purchasing: wired through Bonfire.
-- City of Allen Purchasing
+- City of Allen Purchasing: wired through DemandStar public agency feed.
 - City of Addison Purchasing
 - City of Georgetown Purchasing: wired through IonWave public current-bids table.
-- The Woodlands Township Bids: parser exists, but the source blocks Vercel/server-side fetching, so it remains pending until an alert-email workflow or approved browser collector is added.
+- The Woodlands Township Bids: wired through the official open-bids page, with official Visit The Woodlands fallback for Vercel/server-side blocks and direct document links.
 
 ### Priority 3: Airports, Transit, Utilities, Ports, Authorities
 
@@ -138,7 +138,7 @@ These sources still need source-specific connector work. The next pass should id
 - North Texas Tollway Authority Procurement
 - Capital Area Council of Governments Procurement
 - San Antonio River Authority Business Opportunities: wired through Bonfire.
-- CPS Energy Procurement and Suppliers
+- CPS Energy Procurement and Suppliers: wired through CPS Energy B2GNow public proposal search.
 - Austin Energy Vendor Information
 - San Antonio Water System Purchasing
 - North Texas Municipal Water District Business Opportunities: wired through Bonfire.
@@ -159,4 +159,4 @@ These sources still need source-specific connector work. The next pass should id
 3. OpenGov portals: connector family is implemented for Collin County and Sugar Land. Add any newly confirmed Texas OpenGov hosts through the same parser.
 4. CivicPlus/official HTML pages: implement parsers only where the page contains current bid rows or downloadable bid documents.
 5. Airport/transit/utility portals: Port Houston uses Workday Strategic Sourcing; Houston uses Beacon; Bexar uses Infor/CivCast; Addison uses BidNet Direct. Each needs a specific connector or non-scraping alert workflow if blocked.
-6. Blocked sites: CAPCOG and The Woodlands currently block server-side requests; do not mark either working until a non-blocked official feed, approved alert-email workflow, or browser collector exists.
+6. Blocked sites: CAPCOG currently blocks server-side requests; do not mark it working until a non-blocked official feed, approved alert-email workflow, allowlisting, or browser collector exists.

@@ -24,6 +24,46 @@ type SearchTask = { source: string; run: () => Promise<SearchTaskResult> };
 type SamSearchResult = { results: UnifiedSearchResult[]; error?: string };
 type ConnectorSearchResult = { results: UnifiedSearchResult[]; error?: string };
 type ResultQualityTier = NonNullable<UnifiedSearchResult["qualityTier"]>;
+type BeaconDateValue = { utcDate?: string; specifiedZone?: string } | string | null | undefined;
+type BeaconDocument = { name?: string; detail?: string; key?: string; type?: string; bytes?: number };
+type BeaconContact = { name?: string; email?: string; phone?: string };
+type BeaconSolicitation = {
+  id?: string;
+  refnum?: string;
+  title?: string;
+  status?: string;
+  type?: string;
+  issueDate?: BeaconDateValue;
+  dueDate?: BeaconDateValue;
+  description?: { html?: string } | string | null;
+  documents?: BeaconDocument[];
+  primaryContact?: BeaconContact | null;
+  additionalContacts?: BeaconContact[];
+  agency?: {
+    id?: string;
+    tag?: string;
+    name?: string;
+    location?: { region?: { name?: string; abbr?: string } };
+  };
+};
+type BeaconSolicitationsResponse = {
+  data?: { solicitations?: { total?: number; data?: BeaconSolicitation[] } };
+  errors?: Array<{ message?: string }>;
+};
+type GsaForecastSuggestion = {
+  id_node?: number;
+  title_node?: string;
+  body_node?: string;
+  id_parent_group?: number;
+  id_group?: number;
+  title?: string;
+  body?: string;
+  field_federal_users_only?: boolean;
+};
+type GsaForecastSuggestionsResponse = {
+  data?: GsaForecastSuggestion[];
+};
+type GsaForecastContent = Record<string, Array<Record<string, unknown>> | undefined>;
 
 const TEXAS_ESBD_URL = "https://www.txsmartbuy.gov/esbd";
 const TEXAS_ESBD_SERVICE_URL = "https://www.txsmartbuy.gov/app/extensions/CPA/CPAMain/1.0.0/services/ESBD.Service.ss";
@@ -108,6 +148,83 @@ type WorkdaySource = {
   buyer: string;
   portalUrl: string;
   level: string;
+};
+type BeaconSource = {
+  sourceName: string;
+  buyer: string;
+  agencyTag: string;
+  portalUrl: string;
+  level: string;
+  state: string;
+  submissionInstructions: string;
+};
+type OracleNegotiationSource = {
+  sourceName: string;
+  buyer: string;
+  pageUrl: string;
+  level: string;
+  state: string;
+  timeZone: string;
+  submissionInstructions: string;
+};
+type AdvantageVssSource = {
+  sourceName: string;
+  buyer: string;
+  portalUrl: string;
+  applicationUrl: string;
+  level: string;
+  state: string;
+  timeZone: string;
+  sourceType: string;
+  submissionInstructions: string;
+  departmentPattern?: RegExp;
+};
+type AdvantageVssActionLeaf = {
+  key?: string;
+  name?: string;
+  title?: string;
+  targetQualifiedName?: string;
+  targetLocation?: string;
+  targetComponentType?: string;
+  viewName?: string | null;
+  order?: number;
+};
+type AdvantageVssSessionInfo = {
+  session_id?: string;
+  page_id?: string;
+  csrf_token?: string;
+};
+type AdvantageVssResponse = {
+  page_metadata?: Record<string, unknown> & { key?: string; title?: string };
+  data?: {
+    ds_data?: Record<
+      string,
+      {
+        row_data?: AdvantageVssRow[];
+        rows_per_page?: number;
+      }
+    >;
+  };
+  session_info?: AdvantageVssSessionInfo;
+};
+type AdvantageVssRow = {
+  ADV_ROW_ID?: string;
+  DOC_DSCR?: string;
+  DOC_REF?: string;
+  DOC_CD?: string;
+  DOC_CD_CONCAT?: string;
+  SO_CAT_CD?: string;
+  SO_STA?: string;
+  SO_CLSNG_DT_TM?: number | string;
+  PUB_DT?: number | string;
+  AMND_DT?: number | string;
+  INTENT_POSTED_DT?: number | string;
+  PUB_BID_OP_DT?: number | string;
+  DEPT_NM?: string;
+  BUYR_NM?: string;
+  BUYR_EMAIL_AD?: string;
+  BUYR_PH_NO?: string;
+  BUYR_FAX_NO?: string;
 };
 const TEXAS_BONFIRE_SOURCES: BonfireSource[] = [
   {
@@ -234,7 +351,7 @@ const TEXAS_IONWAVE_SOURCES: IonWaveSource[] = [
   {
     sourceName: "City of Denton Purchasing",
     buyer: "City of Denton",
-    currentBidsUrl: "https://dentontx.ionwave.net/SourcingEvents.aspx?SourceType=112",
+    currentBidsUrl: "https://dentontx.ionwave.net/SourcingEvents.aspx?SourceType=1",
     portalUrl: "https://dentontx.ionwave.net/Login.aspx",
     level: "Local",
   },
@@ -371,6 +488,15 @@ const DEMANDSTAR_SOURCES: DemandStarSource[] = [
     level: "Local",
     state: "FL",
   },
+  {
+    sourceName: "City of Allen Purchasing",
+    buyer: "City of Allen Purchasing",
+    agencyGuid: "bb50e6cc-3403-4b53-9e22-d245a4d553da",
+    portalUrl:
+      "https://www.demandstar.com/app/agencies/texas/city-of-allen-purchasing/procurement-opportunities/bb50e6cc-3403-4b53-9e22-d245a4d553da/",
+    level: "Local",
+    state: "TX",
+  },
 ];
 const DEMANDSTAR_SOURCE_BY_NAME = new Map(DEMANDSTAR_SOURCES.map((source) => [source.sourceName, source]));
 const TEXAS_WORKDAY_SOURCES: WorkdaySource[] = [
@@ -388,6 +514,119 @@ const TEXAS_WORKDAY_SOURCES: WorkdaySource[] = [
   },
 ];
 const TEXAS_WORKDAY_SOURCE_BY_NAME = new Map(TEXAS_WORKDAY_SOURCES.map((source) => [source.sourceName, source]));
+const BEACON_SOURCES: BeaconSource[] = [
+  {
+    sourceName: "City of Houston Procurement",
+    buyer: "City of Houston",
+    agencyTag: "city-of-houston",
+    portalUrl: "https://www.beaconbid.com/solicitations/city-of-houston/open",
+    level: "Local",
+    state: "TX",
+    submissionInstructions:
+      "Open the Beacon posting, subscribe/register as required by the City of Houston, download the official documents, confirm addenda and question deadlines, and submit through Beacon before the closing date.",
+  },
+  {
+    sourceName: "City of Memphis Purchasing",
+    buyer: "City of Memphis",
+    agencyTag: "city-of-memphis-95",
+    portalUrl: "https://www.beaconbid.com/solicitations/city-of-memphis-95/open",
+    level: "Local",
+    state: "TN",
+    submissionInstructions:
+      "Open the Beacon posting, complete the free Beacon interest/subscription flow to access official attachments and updates, confirm addenda and question deadlines, and follow the City of Memphis submission instructions before the closing date.",
+  },
+];
+const BEACON_SOURCE_BY_NAME = new Map(BEACON_SOURCES.map((source) => [source.sourceName, source]));
+const ORACLE_NEGOTIATION_SOURCES: OracleNegotiationSource[] = [
+  {
+    sourceName: "City of Atlanta Procurement",
+    buyer: "City of Atlanta",
+    pageUrl: "https://ehxr.fa.us2.oraclecloud.com/fscmUI/faces/NegotiationAbstracts?prcBuId=300000001273072",
+    level: "Local",
+    state: "GA",
+    timeZone: "America/New_York",
+    submissionInstructions:
+      "Open the Oracle Negotiation Abstracts portal, select the Details icon for the solicitation, download the official attachments and addenda, then submit through the listed Oracle/City of Atlanta instructions before the close date.",
+  },
+  {
+    sourceName: "Metro Nashville Procurement",
+    buyer: "Metropolitan Government of Nashville and Davidson County",
+    pageUrl: "https://ibqhjb.fa.ocs.oraclecloud.com/fscmUI/faces/NegotiationAbstracts?prcBuId=300000006739049",
+    level: "Local",
+    state: "TN",
+    timeZone: "America/Chicago",
+    submissionInstructions:
+      "Open the Oracle Negotiation Abstracts portal, select the Details icon for the negotiation, download the official attachments and addenda, then submit through Metro Nashville's listed Oracle instructions before the close date.",
+  },
+];
+const ORACLE_NEGOTIATION_SOURCE_BY_NAME = new Map(ORACLE_NEGOTIATION_SOURCES.map((source) => [source.sourceName, source]));
+const COLORADO_VSS_APPLICATION_URL = "https://prd.co.cgiadvantage.com/PRDVSS1X1/Advantage4";
+const PALM_BEACH_VSS_APPLICATION_URL = "https://pbcvssp.pbc.gov/vssprd/Advantage4";
+const MECKLENBURG_VSS_APPLICATION_URL = "https://mecknc-vss.hostams.com/PRDVSS1X1/Advantage4";
+const ADVANTAGE_VSS_SOURCES: AdvantageVssSource[] = [
+  {
+    sourceName: "Colorado Vendor Self Service",
+    buyer: "State of Colorado",
+    portalUrl: "https://vss.state.co.us/",
+    applicationUrl: COLORADO_VSS_APPLICATION_URL,
+    level: "State",
+    state: "CO",
+    timeZone: "America/Denver",
+    sourceType: "Colorado Advantage VSS public published solicitations feed",
+    submissionInstructions:
+      "Open Colorado VSS, select the published solicitation row, download the official documents and addenda, confirm registration/submission requirements, and submit through ColoradoVSS before the close date.",
+  },
+  {
+    sourceName: "Colorado VSS Published Solicitations",
+    buyer: "State of Colorado",
+    portalUrl: COLORADO_VSS_APPLICATION_URL,
+    applicationUrl: COLORADO_VSS_APPLICATION_URL,
+    level: "State",
+    state: "CO",
+    timeZone: "America/Denver",
+    sourceType: "Colorado Advantage VSS public published solicitations feed",
+    submissionInstructions:
+      "Open the Colorado VSS published solicitation page, select the row matching the solicitation ID, download the official files and addenda, and submit through ColoradoVSS before the close date.",
+  },
+  {
+    sourceName: "Colorado Department of Human Services Procurement",
+    buyer: "Colorado Department of Human Services",
+    portalUrl: "https://cdhs.colorado.gov/procurement",
+    applicationUrl: COLORADO_VSS_APPLICATION_URL,
+    level: "State",
+    state: "CO",
+    timeZone: "America/Denver",
+    sourceType: "Colorado Advantage VSS public published solicitations feed filtered to CDHS-related buyers",
+    departmentPattern: /\bCDHS\b|Human Services|Office of Behavioral Health|Office of Children|Youth and Families/i,
+    submissionInstructions:
+      "Open the ColoradoVSS posting for the CDHS-related solicitation, download the official documents and addenda, confirm question deadlines and registration needs, and submit through ColoradoVSS before the close date.",
+  },
+  {
+    sourceName: "Palm Beach County Purchasing",
+    buyer: "Palm Beach County",
+    portalUrl: "https://discover.pbc.gov/procurement/Pages/default.aspx",
+    applicationUrl: PALM_BEACH_VSS_APPLICATION_URL,
+    level: "Local",
+    state: "FL",
+    timeZone: "America/New_York",
+    sourceType: "Palm Beach County Advantage VSS public published solicitations feed",
+    submissionInstructions:
+      "Open the Palm Beach County VSS posting, select the solicitation row, download official IFB/RFP documents and addenda, confirm vendor registration and submission requirements, and submit before the close date.",
+  },
+  {
+    sourceName: "Mecklenburg County Vendor Opportunities",
+    buyer: "Mecklenburg County",
+    portalUrl: "https://fin.mecknc.gov/procurement",
+    applicationUrl: MECKLENBURG_VSS_APPLICATION_URL,
+    level: "Local",
+    state: "NC",
+    timeZone: "America/New_York",
+    sourceType: "Mecklenburg County Advantage VSS public published solicitations feed",
+    submissionInstructions:
+      "Open the Mecklenburg County VSS posting, select the solicitation row, download the official documents and addenda, confirm vendor registration/submission requirements, and submit through MeckProcure/VSS before the close date.",
+  },
+];
+const ADVANTAGE_VSS_SOURCE_BY_NAME = new Map(ADVANTAGE_VSS_SOURCES.map((source) => [source.sourceName, source]));
 const TENNESSEE_RFP_URL =
   "https://www.tn.gov/generalservices/procurement/central-procurement-office--cpo-/supplier-information/request-for-proposals--rfp--opportunities1.html";
 const TENNESSEE_ITB_URL =
@@ -403,6 +642,7 @@ const OMNIA_SOLICITATIONS_URL = "https://www.omniapartners.com/get-started/solic
 const EQUALIS_SOLICITATIONS_URL = "https://equalisgroup.org/current-solicitations/";
 const THE_WOODLANDS_BIDS_URL =
   "https://www.thewoodlandstownship-tx.gov/Departments/Finance/Purchasing-Procurement/Bids";
+const VISIT_THE_WOODLANDS_BIDS_URL = "https://www.visitthewoodlands.com/about/public-documents/bids-proposals/";
 const AUSTIN_SOLICITATIONS_URL = "https://financeonline.austintexas.gov/afo/account_services/solicitation/solicitations.cfm";
 const FRISCO_CURRENT_BIDS_URL = "https://www.friscotexas.gov/883/Current-Bids";
 const BEXAR_BIDS_URL = "https://www.bexar.org/Bids.aspx";
@@ -411,6 +651,7 @@ const HOUSTON_AIRPORT_SOLICITATIONS_URL =
   "https://www.fly2houston.com/airport-business/business-partnerships/contracting/solicitations/?pageIndex=1&status=Open";
 const CAPMETRO_PURCHASING_URL = "https://www.capmetro.org/purchasing";
 const VIA_SOLICITATIONS_URL = "https://via.sbecompliance.com/FrontEnd/ProposalSearchPublic.asp?TN=via&XID=2006";
+const CPS_ENERGY_B2GNOW_PROPOSALS_URL = "https://cpsenergy.sbecompliance.com/FrontEnd/ProposalSearchPublic.asp?TN=cpsenergy&XID=";
 const HOUSTON_METRO_PROCUREMENT_URL = "https://www.ridemetro.org/about/business-to-business/procurement-opportunities";
 const NTTA_MARKETPLACE_URL = "https://www.nttamarketplace.org/bso/view/search/external/advancedSearchBid.xhtml?openBids=true";
 const AUSTIN_ENERGY_RFPS_URL = "https://austinenergy.com/contractors/working-with-austin-energy/rfps";
@@ -428,9 +669,15 @@ const FORT_COLLINS_BIDNET_OPEN_BIDS_URL =
 const DENVER_PUBLIC_SCHOOLS_BIDNET_PORTAL_URL = "https://www.bidnetdirect.com/colorado/denver-public-schools";
 const DENVER_PUBLIC_SCHOOLS_BIDNET_OPEN_BIDS_URL =
   "https://www.bidnetdirect.com/colorado/denver-public-schools/solicitations/open-bids?selectedContent=BUYER";
+const DENVER_AIRPORT_BIDNET_PORTAL_URL = "https://www.bidnetdirect.com/colorado/cityandcountyofdenverdepartmentofaviation";
+const DENVER_AIRPORT_BIDNET_OPEN_BIDS_URL =
+  "https://www.bidnetdirect.com/colorado/cityandcountyofdenverdepartmentofaviation/solicitations/open-bids?selectedContent=BUYER";
 const DOUGLAS_COUNTY_CO_BIDNET_PORTAL_URL = "https://www.bidnetdirect.com/colorado/douglas-county-government";
 const DOUGLAS_COUNTY_CO_BIDNET_OPEN_BIDS_URL =
   "https://www.bidnetdirect.com/colorado/douglas-county-government/solicitations/open-bids?selectedContent=BUYER";
+const COLORADO_STATE_UNIVERSITY_BIDNET_PORTAL_URL = "https://www.bidnetdirect.com/colorado/colorado-state-university";
+const COLORADO_STATE_UNIVERSITY_BIDNET_OPEN_BIDS_URL =
+  "https://www.bidnetdirect.com/colorado/colorado-state-university/solicitations/open-bids?selectedContent=BUYER";
 const UNIVERSITY_OF_COLORADO_BIDNET_PORTAL_URL = "https://www.bidnetdirect.com/colorado/universityofcolorado";
 const UNIVERSITY_OF_COLORADO_BIDNET_OPEN_BIDS_URL =
   "https://www.bidnetdirect.com/colorado/universityofcolorado/solicitations/open-bids?selectedContent=BUYER";
@@ -443,16 +690,26 @@ const ADDISON_BIDNET_OPEN_BIDS_URL =
 const FULTON_COUNTY_BIDNET_PORTAL_URL = "https://www.bidnetdirect.com/georgia/fultoncounty";
 const FULTON_COUNTY_BIDNET_OPEN_BIDS_URL =
   "https://www.bidnetdirect.com/georgia/fultoncounty/solicitations/open-bids?selectedContent=BUYER";
+const GEORGIA_GPR_URL = "https://ssl.doas.state.ga.us/gpr/";
+const GEORGIA_GPR_EVENT_SEARCH_URL = "https://ssl.doas.state.ga.us/gpr/eventSearch";
 const MIAMI_DADE_CURRENT_SOLICITATIONS_URL = "https://www.miamidade.gov/apps/isd/StratProc/Home/CurrentSolicitations";
 const MIAMI_DADE_CURRENT_SOLICITATIONS_API_URL = "https://www.miamidade.gov/apps/isd/StratProc/Home/CurrentSolicitationsList";
 const MIAMI_DADE_FUTURE_SOLICITATIONS_URL = "https://www.miamidade.gov/apps/isd/StratProc/Home/FutureSolicitations";
 const MIAMI_DADE_FUTURE_SOLICITATIONS_API_URL = "https://www.miamidade.gov/apps/isd/StratProc/Home/FutureSolicitationsList";
 const MIAMI_DADE_FUTURE_SOLICITATION_DOC_BASE_URL = "https://www.miamidade.gov/Apps/ISD/StratProc/ProcurementNAS/pdf_Files/FutureSolicitations/";
 const GWINNETT_COUNTY_SOLICITATIONS_URL = "https://www.gwinnettcounty.com/government/departments/financial-services/purchasing/solicitations";
+const NORTH_CAROLINA_EVP_SOLICITATIONS_URL = "https://evp.nc.gov/solicitations/?status=0";
+const NORTH_CAROLINA_EVP_GRID_URL = "https://evp.nc.gov/_services/entity-grid-data.json/863ea987-6d3e-ed11-9daf-001dd805ec0b";
+const NORTH_CAROLINA_EVP_TOKEN_URL = "https://evp.nc.gov/_layout/tokenhtml";
+const NORTH_CAROLINA_EVP_DETAIL_URL = "https://evp.nc.gov/solicitations/details/";
+const GSA_FORECAST_URL = "https://acquisitiongateway.gov/forecast";
+const GSA_FORECAST_SUGGESTIONS_URL = "https://ag-dashboard.acquisitiongateway.gov/api/v3.0/suggestions";
+const GSA_FORECAST_CONTENT_URL = "https://ag-dashboard.acquisitiongateway.gov/api/v3.0/content/";
 const DEMANDSTAR_API_BASE_URL = "https://api.demandstar.com";
 const HANDLED_SOURCE_NAMES = new Set([
   "SAM.gov Contract Opportunities",
   "Texas Electronic State Business Daily",
+  "GSA Forecast of Contracting Opportunities",
   "The Woodlands Township Bids",
   "Texas DIR Schedule of Solicitation Opportunities",
   "BuyBoard Current Proposal Invitations",
@@ -481,6 +738,9 @@ const HANDLED_SOURCE_NAMES = new Set([
   ...OPENGOV_SOURCE_BY_NAME.keys(),
   ...DEMANDSTAR_SOURCE_BY_NAME.keys(),
   ...TEXAS_WORKDAY_SOURCE_BY_NAME.keys(),
+  ...BEACON_SOURCE_BY_NAME.keys(),
+  ...ORACLE_NEGOTIATION_SOURCE_BY_NAME.keys(),
+  ...ADVANTAGE_VSS_SOURCE_BY_NAME.keys(),
   ...TEXAS_REFERENCE_SOURCE_NAMES,
 ]);
 const OFFICIAL_PAGE_SOURCE_NAMES = new Set([
@@ -512,20 +772,8 @@ const REFERENCE_ONLY_SOURCE_NAMES = new Set([
   "University System of Georgia Procurement",
   "USAspending.gov",
 ]);
-const SERVER_BLOCKED_SOURCE_NAMES = new Set(["The Woodlands Township Bids", "Equalis Group Current Solicitations"]);
+const SERVER_BLOCKED_SOURCE_NAMES = new Set(["Equalis Group Current Solicitations"]);
 const PENDING_SOURCE_MESSAGES = new Map<string, string>([
-  [
-    "City of Houston Procurement",
-    "The official City of Houston page sends open solicitations through Beacon, which blocks server-side access with AWS WAF/CAPTCHA. Use Beacon alerts, a vendor account, or an approved browser collector.",
-  ],
-  [
-    "The Woodlands Township Bids",
-    "Official page blocks Vercel/server-side fetching; use a vendor alert/email ingestion or browser collector before marking this source live.",
-  ],
-  [
-    "City of Allen Purchasing",
-    "Official eBid is IonWave and has public rows in a browser/curl, but Node/server fetch receives an IonWave/Cloudflare 429 challenge. Use an approved browser collector, vendor alerts, or an official API/feed before marking this source live.",
-  ],
   [
     "City of Addison Purchasing",
     "The official page blocks server-side fetching and points procurement through BidNetDirect. Connect BidNetDirect alerts or an approved browser collector.",
@@ -533,10 +781,6 @@ const PENDING_SOURCE_MESSAGES = new Map<string, string>([
   [
     "Capital Area Council of Governments Procurement",
     "The official CAPCOG page is behind Cloudflare challenge protection from the server environment. Use alerts, email ingestion, or an approved browser collector.",
-  ],
-  [
-    "CPS Energy Procurement and Suppliers",
-    "CPS routes bid opportunities through a Supplier Management/B2GNow portal. A public listing API has not been verified yet; connect portal alerts or credentials.",
   ],
   [
     "Equalis Group Current Solicitations",
@@ -548,6 +792,7 @@ const SAM_ERROR_CACHE_MS = 2 * 60 * 1000;
 const SAM_RATE_LIMIT_CACHE_MS = 10 * 60 * 1000;
 const SAM_RETRY_DELAYS_MS = [0, 1500, 4000];
 const SAM_FETCH_TIMEOUT_MS = 12000;
+const TEXAS_ESBD_SUCCESS_CACHE_MS = 5 * 60 * 1000;
 const BONFIRE_SUCCESS_CACHE_MS = 10 * 60 * 1000;
 const BONFIRE_ERROR_CACHE_MS = 90 * 1000;
 const BONFIRE_RATE_LIMIT_CACHE_MS = 5 * 60 * 1000;
@@ -567,6 +812,8 @@ const DEMANDSTAR_FETCH_TIMEOUT_MS = 12000;
 const WORKDAY_SUCCESS_CACHE_MS = 10 * 60 * 1000;
 const WORKDAY_ERROR_CACHE_MS = 2 * 60 * 1000;
 const WORKDAY_FETCH_TIMEOUT_MS = 12000;
+const ADVANTAGE_VSS_SUCCESS_CACHE_MS = 10 * 60 * 1000;
+const ADVANTAGE_VSS_FETCH_TIMEOUT_MS = 20000;
 const SEARCH_TASK_TIMEOUT_MS = 45000;
 const SEARCH_TOTAL_TIMEOUT_MS = 56000;
 const SEARCH_TASK_CONCURRENCY = 10;
@@ -574,6 +821,8 @@ const MAX_RESULTS = 120;
 
 const samCache = getGlobalMap<{ expiresAt: number; value: SamSearchResult }>("__govContractFinderSamCache");
 const samInFlight = getGlobalMap<Promise<SamSearchResult>>("__govContractFinderSamInFlight");
+const texasEsbdBatchCache = getGlobalMap<{ expiresAt: number; value: TexasEsbdBatchResult }>("__govContractFinderTexasEsbdBatchCache");
+const texasEsbdBatchInFlight = getGlobalMap<Promise<TexasEsbdBatchResult>>("__govContractFinderTexasEsbdBatchInFlight");
 const bonfireCache = getGlobalMap<{ expiresAt: number; value: ConnectorSearchResult }>("__govContractFinderBonfireCache");
 const bonfireInFlight = getGlobalMap<Promise<ConnectorSearchResult>>("__govContractFinderBonfireInFlight");
 const bonfireProjectsCache = getGlobalMap<{ expiresAt: number; projects: BonfireProject[] }>("__govContractFinderBonfireProjectsCache");
@@ -589,6 +838,10 @@ const demandStarCache = getGlobalMap<{ expiresAt: number; value: ConnectorSearch
 const demandStarInFlight = getGlobalMap<Promise<ConnectorSearchResult>>("__govContractFinderDemandStarInFlight");
 const workdayCache = getGlobalMap<{ expiresAt: number; value: ConnectorSearchResult }>("__govContractFinderWorkdayCache");
 const workdayInFlight = getGlobalMap<Promise<ConnectorSearchResult>>("__govContractFinderWorkdayInFlight");
+const northCarolinaEvpCache = getGlobalMap<{ expiresAt: number; records: NorthCarolinaEvpRecord[] }>("__govContractFinderNorthCarolinaEvpCache");
+const northCarolinaEvpInFlight = getGlobalMap<Promise<NorthCarolinaEvpRecord[]>>("__govContractFinderNorthCarolinaEvpInFlight");
+const advantageVssRowsCache = getGlobalMap<{ expiresAt: number; rows: AdvantageVssRow[] }>("__govContractFinderAdvantageVssRowsCache");
+const advantageVssRowsInFlight = getGlobalMap<Promise<AdvantageVssRow[]>>("__govContractFinderAdvantageVssRowsInFlight");
 
 export async function searchConnectedSources({ query, state, level, sources }: SearchFilters): Promise<ConnectedSearchResponse> {
   const tasks: SearchTask[] = [];
@@ -703,6 +956,43 @@ export async function searchConnectedSources({ query, state, level, sources }: S
         continue;
       }
 
+      const beaconSource = BEACON_SOURCE_BY_NAME.get(source.source_name);
+      if (beaconSource) {
+        searchedSources.push(beaconSource.sourceName);
+        removePending(pendingSources, beaconSource.sourceName);
+        tasks.push({ source: beaconSource.sourceName, run: () => searchBeaconSolicitations(query, beaconSource) });
+        continue;
+      }
+
+      const oracleNegotiationSource = ORACLE_NEGOTIATION_SOURCE_BY_NAME.get(source.source_name);
+      if (oracleNegotiationSource) {
+        searchedSources.push(oracleNegotiationSource.sourceName);
+        removePending(pendingSources, oracleNegotiationSource.sourceName);
+        tasks.push({
+          source: oracleNegotiationSource.sourceName,
+          run: () => searchOracleNegotiationAbstracts(query, oracleNegotiationSource),
+        });
+        continue;
+      }
+
+      const advantageVssSource = ADVANTAGE_VSS_SOURCE_BY_NAME.get(source.source_name);
+      if (advantageVssSource) {
+        searchedSources.push(advantageVssSource.sourceName);
+        removePending(pendingSources, advantageVssSource.sourceName);
+        tasks.push({
+          source: advantageVssSource.sourceName,
+          run: () => searchAdvantageVssPublishedSolicitations(query, advantageVssSource),
+        });
+        continue;
+      }
+
+      if (source.source_name === "GSA Forecast of Contracting Opportunities") {
+        searchedSources.push("GSA Forecast of Contracting Opportunities");
+        removePending(pendingSources, "GSA Forecast of Contracting Opportunities");
+        tasks.push({ source: "GSA Forecast of Contracting Opportunities", run: () => searchGsaForecast(query) });
+        continue;
+      }
+
       const texasAgencySource = TEXAS_ESBD_AGENCY_SOURCE_BY_NAME.get(source.source_name);
       if (texasAgencySource) {
         searchedSources.push(texasAgencySource.sourceName);
@@ -799,6 +1089,8 @@ function texasCustomSourceTask(sourceName: string, query: string): (() => Promis
       return () => searchViaProcurement(query);
     case "Houston METRO Procurement":
       return () => searchHoustonMetroProcurement(query);
+    case "CPS Energy Procurement and Suppliers":
+      return () => searchCpsEnergyProcurement(query);
     case "North Texas Tollway Authority Procurement":
       return () => searchNttaProcurement(query);
     case "Austin Energy Vendor Information":
@@ -815,8 +1107,12 @@ function texasCustomSourceTask(sourceName: string, query: string): (() => Promis
       return () => searchFortCollinsPurchasing(query);
     case "Denver Public Schools Purchasing":
       return () => searchDenverPublicSchoolsPurchasing(query);
+    case "Denver International Airport Business Opportunities":
+      return () => searchDenverAirportBusinessOpportunities(query);
     case "Douglas County Purchasing":
       return () => searchDouglasCountyColoradoPurchasing(query);
+    case "Colorado State University Procurement Services":
+      return () => searchColoradoStateUniversityPurchasing(query);
     case "University of Colorado Procurement Service Center":
       return () => searchUniversityOfColoradoPurchasing(query);
     case "Boulder County Purchasing":
@@ -827,10 +1123,28 @@ function texasCustomSourceTask(sourceName: string, query: string): (() => Promis
       return () => searchAddisonPurchasing(query);
     case "Fulton County Bid Opportunities":
       return () => searchFultonCountyBidOpportunities(query);
+    case "Georgia Procurement Registry":
+      return () => searchGeorgiaProcurementRegistry(query);
     case "Miami-Dade County Procurement":
       return () => searchMiamiDadeProcurement(query);
     case "Gwinnett County Purchasing":
       return () => searchGwinnettCountyPurchasing(query);
+    case "North Carolina eVP Solicitations":
+      return () => searchNorthCarolinaEvpSolicitations(query);
+    case "City of Raleigh Current Bidding Opportunities":
+      return () => searchNorthCarolinaEvpSolicitations(query, {
+        sourceName: "City of Raleigh Current Bidding Opportunities",
+        buyer: "City of Raleigh",
+        sourceLevel: "Local",
+        departmentPattern: /\bCITY\s+OF\s+RALEIGH\b/i,
+      });
+    case "Wake County Procurement Services":
+      return () => searchNorthCarolinaEvpSolicitations(query, {
+        sourceName: "Wake County Procurement Services",
+        buyer: "Wake County",
+        sourceLevel: "Local",
+        departmentPattern: /\bWAKE\s+COUNTY\b/i,
+      });
     default:
       return undefined;
   }
@@ -1156,6 +1470,20 @@ function searchDenverPublicSchoolsPurchasing(query: string): Promise<SearchTaskR
   });
 }
 
+function searchDenverAirportBusinessOpportunities(query: string): Promise<SearchTaskResult> {
+  return searchBidNetAgency(query, {
+    sourceName: "Denver International Airport Business Opportunities",
+    buyer: "City and County of Denver Department of Aviation",
+    sourceLevel: "Adjacent",
+    sourceState: "CO",
+    sourceType: "BidNet Direct / Rocky Mountain E-Purchasing public opportunity page",
+    portalUrl: DENVER_AIRPORT_BIDNET_PORTAL_URL,
+    openBidsUrl: DENVER_AIRPORT_BIDNET_OPEN_BIDS_URL,
+    submissionInstructions:
+      "Open the BidNet Direct posting, download the solicitation packet and addenda, confirm registration/submission requirements, and submit through BidNet Direct/Rocky Mountain E-Purchasing before the closing date.",
+  });
+}
+
 function searchDouglasCountyColoradoPurchasing(query: string): Promise<SearchTaskResult> {
   return searchBidNetAgency(query, {
     sourceName: "Douglas County Purchasing",
@@ -1184,6 +1512,20 @@ function searchUniversityOfColoradoPurchasing(query: string): Promise<SearchTask
   });
 }
 
+function searchColoradoStateUniversityPurchasing(query: string): Promise<SearchTaskResult> {
+  return searchBidNetAgency(query, {
+    sourceName: "Colorado State University Procurement Services",
+    buyer: "Colorado State University System",
+    sourceLevel: "Education",
+    sourceState: "CO",
+    sourceType: "BidNet Direct / Rocky Mountain E-Purchasing public opportunity page",
+    portalUrl: COLORADO_STATE_UNIVERSITY_BIDNET_PORTAL_URL,
+    openBidsUrl: COLORADO_STATE_UNIVERSITY_BIDNET_OPEN_BIDS_URL,
+    submissionInstructions:
+      "Open the BidNet Direct posting, download the solicitation packet and addenda, confirm registration/submission requirements, and submit through BidNet Direct/Rocky Mountain E-Purchasing before the closing date.",
+  });
+}
+
 function searchFultonCountyBidOpportunities(query: string): Promise<SearchTaskResult> {
   return searchBidNetAgency(query, {
     sourceName: "Fulton County Bid Opportunities",
@@ -1196,6 +1538,170 @@ function searchFultonCountyBidOpportunities(query: string): Promise<SearchTaskRe
     submissionInstructions:
       "Open the BidNet Direct posting, download the solicitation packet and addenda, confirm registration/submission requirements, and submit through BidNet Direct/Georgia Purchasing Group before the closing date.",
   });
+}
+
+async function searchGeorgiaProcurementRegistry(query: string): Promise<SearchTaskResult> {
+  const source = "Georgia Procurement Registry";
+
+  try {
+    const response = await fetchWithTimeout(
+      GEORGIA_GPR_EVENT_SEARCH_URL,
+      {
+        method: "POST",
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 GovContractFinder/0.1",
+          Accept: "application/json, text/javascript, */*; q=0.01",
+          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+          Referer: GEORGIA_GPR_URL,
+          "X-Requested-With": "XMLHttpRequest",
+        },
+        body: georgiaGprSearchBody(),
+        cache: "no-store",
+      },
+      15000,
+    );
+
+    if (!response.ok) {
+      return { source, results: [], error: `Georgia Procurement Registry returned ${response.status}` };
+    }
+
+    const payload = (await response.json()) as GeorgiaGprEventSearchResponse;
+    if (payload.error) {
+      return { source, results: [], error: payload.error };
+    }
+
+    return { source, results: parseGeorgiaGprEvents(payload.data ?? [], query) };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+function georgiaGprSearchBody() {
+  const params = new URLSearchParams();
+  const columns = ["", "", "title", "agencyName", "", "closingDate", "postingDate", "status"];
+
+  params.set("draw", "1");
+  columns.forEach((column, index) => {
+    params.set(`columns[${index}][data]`, column);
+    params.set(`columns[${index}][name]`, "");
+    params.set(`columns[${index}][searchable]`, "true");
+    params.set(`columns[${index}][orderable]`, "true");
+    params.set(`columns[${index}][search][value]`, "");
+    params.set(`columns[${index}][search][regex]`, "false");
+  });
+  params.set("order[0][column]", "5");
+  params.set("order[0][dir]", "asc");
+  params.set("start", "0");
+  params.set("length", "500");
+  params.set("search[value]", "");
+  params.set("search[regex]", "false");
+  params.set("responseType", "");
+  params.set("eventStatus", "OPEN");
+  params.set("eventIdTitle", "");
+  params.set("govType", "ALL");
+  params.set("govEntity", "");
+  params.set("catType", "");
+  params.set("eventProcessType", "");
+  params.set("dateRangeType", "");
+  params.set("rangeStartDate", "");
+  params.set("rangeEndDate", "");
+  params.set("isReset", "false");
+  params.set("persisted", "false");
+  params.set("refreshSearchData", "true");
+
+  return params.toString();
+}
+
+function parseGeorgiaGprEvents(events: GeorgiaGprEvent[], query: string): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+
+  return events
+    .map((event, index) => georgiaGprEventToResult(event, terms, index))
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+function georgiaGprEventToResult(event: GeorgiaGprEvent, terms: string[], index: number): UnifiedSearchResult | undefined {
+  const title = event.title?.trim();
+  const solicitationId = event.esourceNumber?.trim();
+  const buyer = event.agencyName?.trim() || "Georgia Procurement Registry";
+  const deadline = event.closingDateStr?.trim() || event.closingDate?.trim();
+  const postedDate = event.postingDateStr?.trim() || event.postingDate?.trim();
+  const governmentType = event.governmentType?.trim();
+  const bidProcessType = event.bidProcessType?.trim();
+  const detailKey = event.esourceNumberKey?.trim() || solicitationId;
+  const sourceSystemType = event.sourceId?.trim();
+  const detailUrl =
+    detailKey && sourceSystemType
+      ? `${GEORGIA_GPR_URL}eventDetails?eSourceNumber=${encodeURIComponent(detailKey)}&sourceSystemType=${encodeURIComponent(sourceSystemType)}`
+      : GEORGIA_GPR_URL;
+  const haystack = [
+    title,
+    solicitationId,
+    buyer,
+    event.status,
+    governmentType,
+    bidProcessType,
+    event.electronicBid ? "electronic bid online submission" : "",
+    "Georgia Procurement Registry bid RFP RFQ solicitation state local government",
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const score = scoreOpportunity(haystack, terms, 73 - Math.min(index, 40));
+
+  if (!title || (terms.length > 0 && score <= 0)) {
+    return undefined;
+  }
+
+  if (isPastDeadline(deadline)) {
+    return undefined;
+  }
+
+  const documents = [
+    solicitationId ? `Solicitation ID: ${solicitationId}` : undefined,
+    bidProcessType ? `Process type: ${bidProcessType}` : undefined,
+    governmentType ? `Government type: ${governmentType}` : undefined,
+    postedDate ? `Posted: ${postedDate}` : undefined,
+    typeof event.electronicBid === "boolean" ? `Electronic bid: ${event.electronicBid ? "Yes" : "No"}` : undefined,
+  ].filter((value): value is string => Boolean(value));
+
+  return {
+    id: `georgia-gpr:${solicitationId || title}`,
+    resultType: "opportunity",
+    title,
+    buyer,
+    sourceName: "Georgia Procurement Registry",
+    sourceLevel: "State",
+    sourceState: "GA",
+    sourceType: "Georgia Procurement Registry public eventSearch feed",
+    url: detailUrl,
+    portalUrl: GEORGIA_GPR_URL,
+    score,
+    status: event.status || "Open public registry event",
+    solicitationId,
+    postedDate,
+    deadline,
+    documents,
+    documentLinks: [{ label: "Georgia Procurement Registry event detail", url: detailUrl }],
+    submissionInstructions:
+      "Open the Georgia Procurement Registry event detail, download the official attachments and addenda, confirm vendor registration or electronic-bid requirements, and submit by the closing date.",
+    applicationChecklist: applicationChecklist({
+      hasSolicitationId: Boolean(solicitationId),
+      hasDeadline: Boolean(deadline),
+      hasDocuments: true,
+      hasContact: false,
+    }),
+    summary: [
+      solicitationId ? `Solicitation ${solicitationId}.` : "",
+      bidProcessType ? `${bidProcessType}.` : "",
+      deadline ? `Closes ${deadline}.` : "",
+    ]
+      .filter(Boolean)
+      .join(" "),
+    nextAction: "Open the GPR event detail, download the official documents and addenda, then decide whether to save it for draft response work.",
+  };
 }
 
 async function searchMiamiDadeProcurement(query: string): Promise<SearchTaskResult> {
@@ -1489,6 +1995,279 @@ function gwinnettCountySolicitationToResult(rowHtml: string, terms: string[], in
   };
 }
 
+async function searchNorthCarolinaEvpSolicitations(
+  query: string,
+  scope: NorthCarolinaEvpSourceScope = {
+    sourceName: "North Carolina eVP Solicitations",
+    buyer: "North Carolina eVP",
+    sourceLevel: "State",
+  },
+): Promise<SearchTaskResult> {
+  try {
+    const records = await fetchNorthCarolinaEvpRecords(query);
+    return {
+      source: scope.sourceName,
+      results: parseNorthCarolinaEvpRecords(records, query, scope),
+    };
+  } catch (error) {
+    return { source: scope.sourceName, results: [], error: errorMessage(error) };
+  }
+}
+
+async function fetchNorthCarolinaEvpRecords(query: string): Promise<NorthCarolinaEvpRecord[]> {
+  const normalizedQuery = query.toLowerCase().trim();
+  const cacheKey = `nc-evp:${normalizedQuery}`;
+  const cached = northCarolinaEvpCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.records;
+  }
+
+  const existingRequest = northCarolinaEvpInFlight.get(cacheKey);
+  if (existingRequest) {
+    return existingRequest;
+  }
+
+  const request = fetchNorthCarolinaEvpRecordsUncached(query).finally(() => {
+    northCarolinaEvpInFlight.delete(cacheKey);
+  });
+  northCarolinaEvpInFlight.set(cacheKey, request);
+  const records = await request;
+  northCarolinaEvpCache.set(cacheKey, { expiresAt: Date.now() + 10 * 60 * 1000, records });
+  return records;
+}
+
+async function fetchNorthCarolinaEvpRecordsUncached(query: string): Promise<NorthCarolinaEvpRecord[]> {
+  const userAgent =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 GovContractFinder/0.1";
+  const pageResponse = await fetchWithTimeout(
+    NORTH_CAROLINA_EVP_SOLICITATIONS_URL,
+    {
+      headers: {
+        "User-Agent": userAgent,
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      },
+      cache: "no-store",
+    },
+    15000,
+  );
+
+  if (!pageResponse.ok) {
+    throw new Error(`North Carolina eVP page returned ${pageResponse.status}`);
+  }
+
+  const pageHtml = await pageResponse.text();
+  const viewLayouts = htmlAttributeValue(pageHtml, "data-view-layouts");
+  if (!viewLayouts) {
+    throw new Error("North Carolina eVP page did not include grid configuration");
+  }
+
+  const configurations = JSON.parse(Buffer.from(viewLayouts, "base64").toString("utf8")) as Array<{
+    Base64SecureConfiguration?: string;
+    Configuration?: { SortExpression?: string };
+  }>;
+  const secureConfiguration = configurations[0]?.Base64SecureConfiguration;
+  if (!secureConfiguration) {
+    throw new Error("North Carolina eVP grid configuration did not include secure configuration");
+  }
+
+  const firstCookieHeader = cookieHeaderFromResponse(pageResponse);
+  const tokenResponse = await fetchWithTimeout(
+    NORTH_CAROLINA_EVP_TOKEN_URL,
+    {
+      headers: {
+        "User-Agent": userAgent,
+        Accept: "text/html,application/xhtml+xml",
+        Cookie: firstCookieHeader,
+        Referer: NORTH_CAROLINA_EVP_SOLICITATIONS_URL,
+      },
+      cache: "no-store",
+    },
+    10000,
+  );
+
+  if (!tokenResponse.ok) {
+    throw new Error(`North Carolina eVP token endpoint returned ${tokenResponse.status}`);
+  }
+
+  const tokenHtml = await tokenResponse.text();
+  const requestVerificationToken = tokenHtml.match(/name=["']__RequestVerificationToken["'][^>]*value=["']([^"']+)["']/i)?.[1];
+  if (!requestVerificationToken) {
+    throw new Error("North Carolina eVP token endpoint did not return a request token");
+  }
+
+  const cookieHeader = mergeCookieHeaders(firstCookieHeader, cookieHeaderFromResponse(tokenResponse));
+  const response = await fetchWithTimeout(
+    NORTH_CAROLINA_EVP_GRID_URL,
+    {
+      method: "POST",
+      headers: {
+        "User-Agent": userAgent,
+        Accept: "application/json, text/javascript, */*; q=0.01",
+        "Content-Type": "application/json; charset=UTF-8",
+        "X-Requested-With": "XMLHttpRequest",
+        "__RequestVerificationToken": requestVerificationToken,
+        Cookie: cookieHeader,
+        Referer: NORTH_CAROLINA_EVP_SOLICITATIONS_URL,
+      },
+      body: JSON.stringify({
+        base64SecureConfiguration: secureConfiguration,
+        sortExpression: configurations[0]?.Configuration?.SortExpression || "evp_posteddate DESC",
+        search: query.trim(),
+        page: 1,
+        pageSize: 250,
+        pagingCookie: "",
+        filter: null,
+        metaFilter: "0=&1=&2=&3=0&4=&5=&7=",
+        nlSearchFilter: null,
+        timezoneOffset: 360,
+        customParameters: [],
+      }),
+      cache: "no-store",
+    },
+    18000,
+  );
+
+  if (!response.ok) {
+    throw new Error(`North Carolina eVP grid returned ${response.status}`);
+  }
+
+  const payload = (await response.json()) as NorthCarolinaEvpGridResponse;
+  return payload.Records ?? [];
+}
+
+function parseNorthCarolinaEvpRecords(records: NorthCarolinaEvpRecord[], query: string, scope: NorthCarolinaEvpSourceScope): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+
+  return records
+    .map((record, index) => northCarolinaEvpRecordToResult(record, terms, index, scope))
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+function northCarolinaEvpRecordToResult(
+  record: NorthCarolinaEvpRecord,
+  terms: string[],
+  index: number,
+  scope: NorthCarolinaEvpSourceScope,
+): UnifiedSearchResult | undefined {
+  const attributes = northCarolinaEvpAttributes(record);
+  const department = attributes.get("owningbusinessunit");
+  if (scope.departmentPattern && !scope.departmentPattern.test(department ?? "")) {
+    return undefined;
+  }
+
+  const title = attributes.get("evp_name");
+  const solicitationId = attributes.get("evp_solicitationnbr");
+  const description = attributes.get("evp_description");
+  const deadline = attributes.get("evp_opendate");
+  const postedDate = attributes.get("evp_posteddate");
+  const status = attributes.get("statuscode") || "Open";
+  const recordId = record.Id || attributes.get("evp_solicitationid");
+  const detailUrl = recordId
+    ? `${NORTH_CAROLINA_EVP_DETAIL_URL}?id=${encodeURIComponent(recordId)}`
+    : NORTH_CAROLINA_EVP_SOLICITATIONS_URL;
+  const buyer = department || scope.buyer;
+  const haystack = [
+    title,
+    solicitationId,
+    description,
+    buyer,
+    status,
+    "North Carolina eVP bid RFP RFQ solicitation state local government public procurement",
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const score = scoreOpportunity(haystack, terms, 76 - Math.min(index, 45));
+
+  if (!title || (terms.length > 0 && score <= 0)) {
+    return undefined;
+  }
+
+  if (isPastDeadline(deadline)) {
+    return undefined;
+  }
+
+  const documents = [
+    solicitationId ? `Solicitation ID: ${solicitationId}` : undefined,
+    department ? `Department: ${department}` : undefined,
+    postedDate ? `Posted: ${postedDate}` : undefined,
+  ].filter((value): value is string => Boolean(value));
+
+  return {
+    id: `nc-evp:${scope.sourceName}:${recordId || solicitationId || title}`,
+    resultType: "opportunity",
+    title,
+    buyer,
+    sourceName: scope.sourceName,
+    sourceLevel: scope.sourceLevel,
+    sourceState: "NC",
+    sourceType: "North Carolina eVP public solicitation grid",
+    url: detailUrl,
+    portalUrl: NORTH_CAROLINA_EVP_SOLICITATIONS_URL,
+    score,
+    status,
+    solicitationId,
+    postedDate,
+    deadline,
+    documents,
+    documentLinks: [{ label: "NC eVP solicitation detail and documents", url: detailUrl }],
+    submissionInstructions:
+      "Open the NC eVP solicitation detail, download the official documents and addenda, confirm eVP registration and question deadline, then submit through the listed eVP process before the opening date.",
+    applicationChecklist: applicationChecklist({
+      hasSolicitationId: Boolean(solicitationId),
+      hasDeadline: Boolean(deadline),
+      hasDocuments: true,
+      hasContact: false,
+    }),
+    summary: [description, solicitationId ? `Solicitation ${solicitationId}.` : "", deadline ? `Opens ${deadline}.` : ""]
+      .filter(Boolean)
+      .join(" "),
+    nextAction: "Open the NC eVP detail page, download the solicitation packet and addenda, then decide whether to save it for draft response work.",
+  };
+}
+
+function northCarolinaEvpAttributes(record: NorthCarolinaEvpRecord) {
+  const attributes = new Map<string, string>();
+  for (const attribute of record.Attributes ?? []) {
+    if (!attribute.Name) {
+      continue;
+    }
+
+    attributes.set(attribute.Name, northCarolinaEvpAttributeText(attribute));
+  }
+
+  return attributes;
+}
+
+function northCarolinaEvpAttributeText(attribute: NorthCarolinaEvpAttribute) {
+  if (attribute.DisplayValue) {
+    return cleanText(attribute.DisplayValue);
+  }
+
+  if (attribute.FormattedValue) {
+    return cleanText(attribute.FormattedValue);
+  }
+
+  const value = attribute.Value;
+  if (typeof value === "string") {
+    return cleanText(value);
+  }
+
+  if (value && typeof value === "object" && "Name" in value && typeof value.Name === "string") {
+    return cleanText(value.Name);
+  }
+
+  if (value && typeof value === "object" && "Value" in value) {
+    const primitiveValue = value.Value;
+    if (typeof primitiveValue === "string" || typeof primitiveValue === "number") {
+      return String(primitiveValue);
+    }
+  }
+
+  return "";
+}
+
 function parseBidNetAgencySolicitations(html: string, query: string, source: BidNetAgencySource): UnifiedSearchResult[] {
   const terms = conceptTerms(query);
   const rows = Array.from(html.matchAll(/<tr\b[^>]*class=["'][^"']*\bmets-table-row\b[^"']*["'][^>]*>([\s\S]*?)<\/tr>/gi));
@@ -1571,14 +2350,27 @@ async function searchTheWoodlands(query: string): Promise<{ source: string; resu
   try {
     const response = await fetchPublicPage(THE_WOODLANDS_BIDS_URL);
 
-    if (!response.ok) {
-      return { source: "The Woodlands Township Bids", results: [], error: `returned ${response.status}` };
+    if (response.ok) {
+      const html = await response.text();
+      return {
+        source: "The Woodlands Township Bids",
+        results: parseTheWoodlandsBids(html, query),
+      };
     }
 
-    const html = await response.text();
+    const fallbackResponse = await fetchPublicPage(VISIT_THE_WOODLANDS_BIDS_URL);
+    if (!fallbackResponse.ok) {
+      return {
+        source: "The Woodlands Township Bids",
+        results: [],
+        error: `Township page returned ${response.status}; Visit The Woodlands fallback returned ${fallbackResponse.status}`,
+      };
+    }
+
+    const html = await fallbackResponse.text();
     return {
       source: "The Woodlands Township Bids",
-      results: parseTheWoodlandsBids(html, query),
+      results: parseVisitTheWoodlandsBids(html, query),
     };
   } catch (error) {
     return { source: "The Woodlands Township Bids", results: [], error: errorMessage(error) };
@@ -1586,8 +2378,14 @@ async function searchTheWoodlands(query: string): Promise<{ source: string; resu
 }
 
 function parseTheWoodlandsBids(html: string, query: string): UnifiedSearchResult[] {
-  const openSection = html.match(/<h3>Open Bids<\/h3>([\s\S]*?)(?:<h3>Closed\/Awarded Bids<\/h3>|<\/main>)/i)?.[1] ?? "";
-  const entries = Array.from(openSection.matchAll(/<h4>([\s\S]*?)<\/h4>([\s\S]*?)(?=<h4>|$)/gi));
+  const openStart = html.search(/<h3\b[^>]*>\s*Open Bids\s*<\/h3>/i);
+  const closedStart = html.search(/<h3\b[^>]*>\s*Closed\/Awarded Bids\s*<\/h3>/i);
+  const mainEnd = html.indexOf("</main>", openStart);
+  const openSection =
+    openStart >= 0
+      ? html.slice(openStart, closedStart > openStart ? closedStart : mainEnd > openStart ? mainEnd : undefined)
+      : "";
+  const entries = Array.from(openSection.matchAll(/<h4\b[^>]*>([\s\S]*?)<\/h4>([\s\S]*?)(?=<h4\b|$)/gi));
   const terms = conceptTerms(query);
 
   return entries
@@ -1596,15 +2394,37 @@ function parseTheWoodlandsBids(html: string, query: string): UnifiedSearchResult
     .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
 }
 
-function theWoodlandsEntryToResult(titleHtml: string, bodyHtml: string, terms: string[], index: number): UnifiedSearchResult | undefined {
+function parseVisitTheWoodlandsBids(html: string, query: string): UnifiedSearchResult[] {
+  const openStart = html.search(/<h4\b[^>]*>\s*OPEN\s*<\/h4>/i);
+  const closedStart = html.search(/<h4\b[^>]*>\s*CLOSED\s*<\/h4>/i);
+  const openSection =
+    openStart >= 0
+      ? html.slice(openStart, closedStart > openStart ? closedStart : undefined)
+      : "";
+  const entries = Array.from(openSection.matchAll(/<h6\b[^>]*>([\s\S]*?)<\/h6>([\s\S]*?)(?=<h6\b|$)/gi));
+  const terms = conceptTerms(query);
+
+  return entries
+    .map((entry, index) => theWoodlandsEntryToResult(entry[1], entry[2], terms, index, VISIT_THE_WOODLANDS_BIDS_URL))
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+function theWoodlandsEntryToResult(
+  titleHtml: string,
+  bodyHtml: string,
+  terms: string[],
+  index: number,
+  baseUrl = THE_WOODLANDS_BIDS_URL,
+): UnifiedSearchResult | undefined {
   const title = cleanText(titleHtml);
   const description = cleanText(bodyHtml.split(/<strong>\s*Closing Date/i)[0] ?? bodyHtml);
   const deadline = cleanText(bodyHtml.match(/<strong>\s*Closing Date:?<\/strong>\s*:?\s*([\s\S]*?)(?:<br|<\/p>)/i)?.[1] ?? "");
   const contact = cleanText(bodyHtml.match(/<strong>\s*Contact:?[\s\S]*?<\/strong>\s*([\s\S]*?)(?:<\/p>|<br)/i)?.[1] ?? "");
-  const linkMatch = bodyHtml.match(/<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
-  const url = linkMatch ? new URL(linkMatch[1], THE_WOODLANDS_BIDS_URL).toString() : THE_WOODLANDS_BIDS_URL;
-  const linkText = linkMatch ? cleanText(linkMatch[2]) : "";
-  const haystack = [title, description, deadline, contact, linkText, "the woodlands township bids"].filter(Boolean).join(" ").toLowerCase();
+  const documentLinks = dedupeDocumentLinks(extractAnchorLinks(bodyHtml, baseUrl)).filter((link) => !link.url.startsWith("mailto:"));
+  const url = documentLinks[0]?.url ?? baseUrl;
+  const documents = documentLinks.map((link) => link.label).filter(Boolean);
+  const haystack = [title, description, deadline, contact, documents.join(" "), "the woodlands township bids"].filter(Boolean).join(" ").toLowerCase();
   const score = scoreOpportunity(haystack, terms, 65 - index);
 
   if (terms.length > 0 && score <= 0) {
@@ -1625,15 +2445,15 @@ function theWoodlandsEntryToResult(titleHtml: string, bodyHtml: string, terms: s
     sourceState: "TX",
     sourceType: "Public opportunity page",
     url,
-    portalUrl: THE_WOODLANDS_BIDS_URL,
+    portalUrl: baseUrl,
     score,
     status: "Open/public posting",
     deadline,
     contact,
-    documents: linkText ? [linkText] : [],
-    documentLinks: linkText ? [{ label: linkText, url }] : undefined,
+    documents,
+    documentLinks: documentLinks.length ? documentLinks : undefined,
     submissionInstructions: "Open the Township bid document and follow the stated submission method, required forms, and closing date.",
-    applicationChecklist: applicationChecklist({ hasSolicitationId: false, hasDeadline: Boolean(deadline), hasDocuments: Boolean(linkText), hasContact: Boolean(contact) }),
+    applicationChecklist: applicationChecklist({ hasSolicitationId: false, hasDeadline: Boolean(deadline), hasDocuments: documentLinks.length > 0, hasContact: Boolean(contact) }),
     summary: [description, contact ? `Contact: ${contact}.` : ""].filter(Boolean).join(" "),
     nextAction: "Open the Township bid document, confirm the submission method and due date, then route it for human review.",
   };
@@ -2427,14 +3247,15 @@ async function searchTexasAgencyEsbd(
 ): Promise<{ source: string; results: UnifiedSearchResult[]; error?: string }> {
   try {
     const nigpCodes = texasEsbdNigpCodes(query);
-    const batches = await runLimited(
-      agencySource.agencyNumbers.flatMap((agencyNumber) =>
-        nigpCodes.length > 0
-          ? nigpCodes.map((nigp) => () => fetchTexasEsbdBatch({ agencyNumber, nigp, status: TEXAS_ESBD_ACTIVE_STATUS }))
-          : [() => fetchTexasEsbdPages({ agencyNumber, status: TEXAS_ESBD_ACTIVE_STATUS }, TEXAS_ESBD_DEFAULT_RECENT_PAGES)],
-      ),
-      4,
-    );
+    const useSharedNigpBatches = agencySource.agencyNumbers.length > 4 && nigpCodes.length > 0;
+    const batchTasks = useSharedNigpBatches
+      ? nigpCodes.map((nigp) => () => fetchTexasEsbdBatch({ nigp, status: TEXAS_ESBD_ACTIVE_STATUS }))
+      : agencySource.agencyNumbers.flatMap((agencyNumber) =>
+          nigpCodes.length > 0
+            ? nigpCodes.map((nigp) => () => fetchTexasEsbdBatch({ agencyNumber, nigp, status: TEXAS_ESBD_ACTIVE_STATUS }))
+            : [() => fetchTexasEsbdPages({ agencyNumber, status: TEXAS_ESBD_ACTIVE_STATUS }, TEXAS_ESBD_DEFAULT_RECENT_PAGES)],
+        );
+    const batches = await runLimited(batchTasks, 4);
 
     const rowsById = new Map<string, TexasEsbdLine>();
     const allowedAgencyNumbers = new Set(agencySource.agencyNumbers.map((agencyNumber) => agencyNumber.toUpperCase()));
@@ -2489,7 +3310,34 @@ type TexasEsbdResponse = {
   totalRecordsFound?: number;
 };
 
-async function fetchTexasEsbdBatch(params: Record<string, string>) {
+type TexasEsbdBatchResult = { lines: TexasEsbdLine[]; error?: string };
+
+async function fetchTexasEsbdBatch(params: Record<string, string>): Promise<TexasEsbdBatchResult> {
+  const cacheKey = `esbd-batch:${stableParamKey(params)}`;
+  const cached = texasEsbdBatchCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value;
+  }
+
+  const existingRequest = texasEsbdBatchInFlight.get(cacheKey);
+  if (existingRequest) {
+    return existingRequest;
+  }
+
+  const request = fetchTexasEsbdBatchUncached(params).finally(() => {
+    texasEsbdBatchInFlight.delete(cacheKey);
+  });
+  texasEsbdBatchInFlight.set(cacheKey, request);
+
+  const value = await request;
+  if (!value.error) {
+    texasEsbdBatchCache.set(cacheKey, { expiresAt: Date.now() + TEXAS_ESBD_SUCCESS_CACHE_MS, value });
+  }
+
+  return value;
+}
+
+async function fetchTexasEsbdBatchUncached(params: Record<string, string>): Promise<TexasEsbdBatchResult> {
   const firstPage = await fetchTexasEsbdPage({ ...params, page: "1", urlRoot: "esbd" });
   if (firstPage.error) {
     return { lines: [], error: firstPage.error };
@@ -2522,7 +3370,14 @@ async function fetchTexasEsbdPages(params: Record<string, string>, pageCount: nu
   };
 }
 
-async function fetchTexasEsbdPage(payload: Record<string, string>): Promise<{ data: TexasEsbdResponse; error?: string }> {
+function stableParamKey(params: Record<string, string>) {
+  return Object.keys(params)
+    .sort()
+    .map((key) => `${key}=${params[key]}`)
+    .join("&");
+}
+
+async function fetchTexasEsbdPage(payload: Record<string, string>, attempt = 0): Promise<{ data: TexasEsbdResponse; error?: string }> {
   const controller = new AbortController();
   const timeout = windowlessTimeout(() => controller.abort(), 15000);
 
@@ -2545,6 +3400,11 @@ async function fetchTexasEsbdPage(payload: Record<string, string>): Promise<{ da
     });
 
     if (!response.ok) {
+      if (response.status === 503 && attempt < 1) {
+        await delay(1000);
+        return fetchTexasEsbdPage(payload, attempt + 1);
+      }
+
       return { data: {}, error: `official ESBD service returned ${response.status}` };
     }
 
@@ -2829,6 +3689,48 @@ type DemandStarAgencySearchResponse = {
   result?: DemandStarBid[];
   total?: number;
 };
+type GeorgiaGprEvent = {
+  esourceNumber?: string;
+  title?: string;
+  agencyName?: string;
+  closingDate?: string;
+  postingDate?: string;
+  status?: string;
+  governmentType?: string;
+  bidProcessType?: string;
+  closingDateStr?: string;
+  postingDateStr?: string;
+  electronicBid?: boolean;
+  sourceId?: string;
+  esourceNumberKey?: string;
+};
+type GeorgiaGprEventSearchResponse = {
+  data?: GeorgiaGprEvent[];
+  recordsTotal?: number;
+  recordsFiltered?: number;
+  error?: string;
+};
+type NorthCarolinaEvpAttribute = {
+  Name?: string;
+  Value?: unknown;
+  DisplayValue?: string;
+  FormattedValue?: string;
+};
+type NorthCarolinaEvpRecord = {
+  Id?: string;
+  Attributes?: NorthCarolinaEvpAttribute[];
+};
+type NorthCarolinaEvpGridResponse = {
+  MoreRecords?: boolean;
+  Records?: NorthCarolinaEvpRecord[];
+  NextPagePagingCookie?: string;
+};
+type NorthCarolinaEvpSourceScope = {
+  sourceName: string;
+  buyer: string;
+  sourceLevel: string;
+  departmentPattern?: RegExp;
+};
 type MiamiDadeCurrentSolicitation = {
   solicitationNumber?: string;
   solicitationType?: string;
@@ -3060,6 +3962,14 @@ async function fetchIonWaveCurrentBids(query: string, source: IonWaveSource): Pr
   }
 
   const html = await response.text();
+  const title = html.match(/<title[^>]*>\s*([\s\S]*?)\s*<\/title>/i)?.[1];
+  if (/Just a moment/i.test(title ?? "")) {
+    return { results: [], error: "IonWave rate limited the public bid table with a platform challenge; retry after cooldown." };
+  }
+  if (/An error has occurred|Invalid Request/i.test(title ?? "")) {
+    return { results: [], error: "IonWave returned a platform error page instead of the public bid table." };
+  }
+
   ionWavePageCache.set(source.currentBidsUrl, { expiresAt: Date.now() + IONWAVE_SUCCESS_CACHE_MS, html });
   return { results: parseIonWaveRows(html, query, source) };
 }
@@ -3714,6 +4624,1215 @@ function workdayEventToResult(
   };
 }
 
+const BEACON_LIST_SOLICITATIONS_QUERY = `
+query ListSolicitations($agencyTag: String, $status: String, $filter: String, $start: Int, $pageSize: Int, $sort: String) {
+  solicitations(agencyTag: $agencyTag, status: $status, filter: $filter, start: $start, pageSize: $pageSize, sort: $sort) {
+    total
+    data {
+      id
+      refnum
+      title
+      status
+      type
+      issueDate
+      dueDate
+      description
+      documents
+      primaryContact
+      additionalContacts
+      agency {
+        id
+        tag
+        name
+        location {
+          region {
+            name
+            abbr
+          }
+        }
+      }
+    }
+  }
+}
+`;
+
+async function searchBeaconSolicitations(query: string, source: BeaconSource): Promise<SearchTaskResult> {
+  try {
+    const response = await fetchWithTimeout(
+      "https://www.beaconbid.com/api/gql?operation=ListSolicitations",
+      {
+        method: "POST",
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 GovContractFinder/0.1",
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          Origin: "https://www.beaconbid.com",
+          Referer: source.portalUrl,
+          "x-cver": "0",
+        },
+        body: JSON.stringify({
+          operationName: "ListSolicitations",
+          query: BEACON_LIST_SOLICITATIONS_QUERY,
+          variables: {
+            agencyTag: source.agencyTag,
+            status: "open",
+            filter: "",
+            start: 0,
+            pageSize: 100,
+            sort: "issueDate desc",
+          },
+        }),
+        cache: "no-store",
+      },
+      12000,
+    );
+
+    if (!response.ok) {
+      return { source: source.sourceName, results: [], error: `Beacon returned ${response.status}` };
+    }
+
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.includes("application/json")) {
+      return { source: source.sourceName, results: [], error: "Beacon returned a non-JSON challenge page" };
+    }
+
+    const data = (await response.json()) as BeaconSolicitationsResponse;
+    if (data.errors?.length) {
+      return {
+        source: source.sourceName,
+        results: [],
+        error: data.errors.map((error) => error.message).filter(Boolean).join("; ") || "Beacon GraphQL returned an error",
+      };
+    }
+
+    return {
+      source: source.sourceName,
+      results: parseBeaconSolicitations(data.data?.solicitations?.data ?? [], query, source),
+    };
+  } catch (error) {
+    return { source: source.sourceName, results: [], error: errorMessage(error) };
+  }
+}
+
+function parseBeaconSolicitations(solicitations: BeaconSolicitation[], query: string, source: BeaconSource) {
+  const terms = conceptTerms(query);
+
+  return solicitations
+    .map((solicitation, index) => beaconSolicitationToResult(solicitation, terms, index, source))
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+function beaconSolicitationToResult(
+  solicitation: BeaconSolicitation,
+  terms: string[],
+  index: number,
+  source: BeaconSource,
+): UnifiedSearchResult | undefined {
+  const title = solicitation.title?.trim();
+  if (!title || !solicitation.id) {
+    return undefined;
+  }
+
+  const descriptionHtml = beaconDescriptionHtml(solicitation.description);
+  const descriptionText = cleanText(descriptionHtml);
+  const deadline = formatBeaconDate(solicitation.dueDate, source.state === "TN" ? "America/Chicago" : "America/Chicago");
+  const postedDate = formatBeaconDate(solicitation.issueDate, source.state === "TN" ? "America/Chicago" : "America/Chicago");
+  const solicitationId = solicitation.refnum?.trim() || solicitation.id;
+  const agencyName = solicitation.agency?.name?.trim() || source.buyer;
+  const documents = (solicitation.documents ?? [])
+    .map((document) => [document.detail, document.name].filter(Boolean).join(": "))
+    .filter((document) => document.length > 0);
+  const contact = beaconContactText(solicitation.primaryContact);
+  const haystack = [
+    title,
+    solicitationId,
+    solicitation.type,
+    solicitation.status,
+    agencyName,
+    descriptionText,
+    documents.join(" "),
+    contact,
+    ...(solicitation.additionalContacts ?? []).map(beaconContactText),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const score = scoreOpportunity(haystack, terms, 76 - Math.min(index, 35));
+
+  if (terms.length > 0 && score <= 0) {
+    return undefined;
+  }
+
+  if (isPastDeadline(deadline)) {
+    return undefined;
+  }
+
+  const detailUrl = beaconSolicitationUrl(source.agencyTag, solicitation.id, title);
+  const externalLinks = extractAnchorLinks(descriptionHtml, detailUrl).filter((link) => !link.url.startsWith("mailto:"));
+  const documentLinks = dedupeDocumentLinks([{ label: "Beacon solicitation detail", url: detailUrl }, ...externalLinks]);
+  const allContacts = [contact, ...(solicitation.additionalContacts ?? []).map(beaconContactText)].filter(Boolean);
+
+  return {
+    id: `beacon:${source.agencyTag}:${solicitation.id}`,
+    resultType: "opportunity",
+    title,
+    buyer: agencyName,
+    sourceName: source.sourceName,
+    sourceLevel: source.level,
+    sourceState: source.state,
+    sourceType: "Beacon public solicitation GraphQL feed",
+    url: detailUrl,
+    portalUrl: source.portalUrl,
+    score,
+    status: solicitation.status ? beaconStatusLabel(solicitation.status) : "Open",
+    solicitationId,
+    deadline,
+    postedDate,
+    contact: allContacts[0],
+    documents,
+    documentLinks,
+    submissionInstructions: source.submissionInstructions,
+    applicationChecklist: applicationChecklist({
+      hasSolicitationId: Boolean(solicitationId),
+      hasDeadline: Boolean(deadline),
+      hasDocuments: documents.length > 0 || documentLinks.length > 1,
+      hasContact: allContacts.length > 0,
+    }),
+    summary: [
+      solicitation.type ? `${solicitation.type}.` : "",
+      descriptionText ? descriptionText.slice(0, 260) : "",
+      documents.length ? `Documents listed: ${documents.slice(0, 4).join("; ")}.` : "",
+      postedDate ? `Posted ${postedDate}.` : "",
+      deadline ? `Closes ${deadline}.` : "",
+    ]
+      .filter(Boolean)
+      .join(" "),
+    nextAction: "Open the Beacon detail page, confirm fit, download official attachments through Beacon, and route it for human review.",
+  };
+}
+
+function beaconDescriptionHtml(description: BeaconSolicitation["description"]) {
+  if (!description) {
+    return "";
+  }
+
+  return typeof description === "string" ? description : description.html ?? "";
+}
+
+function beaconContactText(contact?: BeaconContact | null) {
+  if (!contact) {
+    return undefined;
+  }
+
+  return [contact.name, contact.email, contact.phone].filter(Boolean).join(" | ") || undefined;
+}
+
+function beaconStatusLabel(status: string) {
+  return status
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function beaconSolicitationUrl(agencyTag: string, id: string, title: string) {
+  return `https://www.beaconbid.com/solicitations/${encodeURIComponent(agencyTag)}/${encodeURIComponent(id)}/${slugifyForUrl(title)}`;
+}
+
+function formatBeaconDate(value: BeaconDateValue, fallbackTimeZone: string) {
+  const raw = typeof value === "string" ? value : value?.utcDate;
+  const timeZone = typeof value === "object" && value?.specifiedZone ? value.specifiedZone : fallbackTimeZone;
+  return formatIsoDateTime(raw, timeZone);
+}
+
+function slugifyForUrl(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 120);
+}
+
+async function searchGsaForecast(query: string): Promise<SearchTaskResult> {
+  const source = "GSA Forecast of Contracting Opportunities";
+  try {
+    const url = `${GSA_FORECAST_SUGGESTIONS_URL}?search=${encodeURIComponent(query)}`;
+    const response = await fetchWithTimeout(
+      url,
+      {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 GovContractFinder/0.1",
+          Accept: "application/json",
+          Referer: GSA_FORECAST_URL,
+        },
+        cache: "no-store",
+      },
+      12000,
+    );
+
+    if (!response.ok) {
+      return { source, results: [], error: `GSA Forecast suggestions returned ${response.status}` };
+    }
+
+    const data = (await response.json()) as GsaForecastSuggestionsResponse;
+    const forecastSuggestions = (data.data ?? [])
+      .filter((item) => item.id_node && item.id_parent_group === 2 && item.field_federal_users_only !== true)
+      .slice(0, 16);
+
+    const results = await runLimited(
+      forecastSuggestions.map((suggestion, index) => async () => {
+        try {
+          const content = await fetchGsaForecastContent(suggestion.id_node as number);
+          return gsaForecastContentToResult(content, suggestion, query, index);
+        } catch {
+          return gsaForecastSuggestionToResult(suggestion, query, index);
+        }
+      }),
+      4,
+    );
+
+    return {
+      source,
+      results: results
+        .filter((result): result is UnifiedSearchResult => Boolean(result))
+        .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title)),
+    };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+async function fetchGsaForecastContent(id: number): Promise<GsaForecastContent> {
+  const response = await fetchWithTimeout(
+    `${GSA_FORECAST_CONTENT_URL}${encodeURIComponent(String(id))}`,
+    {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 GovContractFinder/0.1",
+        Accept: "application/json",
+        Referer: GSA_FORECAST_URL,
+      },
+      cache: "no-store",
+    },
+    12000,
+  );
+
+  if (!response.ok) {
+    throw new Error(`GSA Forecast content returned ${response.status}`);
+  }
+
+  return (await response.json()) as GsaForecastContent;
+}
+
+function gsaForecastContentToResult(
+  content: GsaForecastContent,
+  suggestion: GsaForecastSuggestion,
+  query: string,
+  index: number,
+): UnifiedSearchResult | undefined {
+  if (gsaFieldTargetId(content, "type") !== "forecast_tool") {
+    return undefined;
+  }
+
+  const terms = conceptTerms(query);
+  const id = gsaFieldValue(content, "nid") ?? String(suggestion.id_node ?? "");
+  const title = gsaFieldValue(content, "title") ?? suggestion.title_node ?? suggestion.title;
+  const body = gsaBodyText(content) || suggestion.body_node || suggestion.body || "";
+  if (!id || !title) {
+    return undefined;
+  }
+
+  const sourceListingId = gsaFieldValue(content, "field_source_listing_id") ?? id;
+  const estimatedSolicitationDate = gsaFieldValue(content, "field_estimated_solicitation_dat");
+  const period = gsaPeriodOfPerformance(content);
+  const place = gsaPlaceOfPerformance(content);
+  const contact = gsaContact(content);
+  const budget = gsaBudget(content);
+  const haystack = [title, body, sourceListingId, estimatedSolicitationDate, period, place, contact, budget]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const score = scoreOpportunity(haystack, terms, 78 - Math.min(index, 35));
+  if (terms.length > 0 && score <= 0) {
+    return undefined;
+  }
+
+  const detailUrl = `https://acquisitiongateway.gov/forecast/resources/${encodeURIComponent(id)}`;
+  const solicitationLink = gsaLink(content, "field_solicitation_link", detailUrl);
+  const documentLinks = dedupeDocumentLinks(
+    [
+      { label: "GSA Forecast detail", url: detailUrl },
+      solicitationLink,
+    ].filter((link): link is OpportunityDocumentLink => Boolean(link)),
+  );
+  const documents = [
+    estimatedSolicitationDate ? `Estimated solicitation date: ${estimatedSolicitationDate}` : undefined,
+    period ? `Period of performance: ${period}` : undefined,
+    place ? `Place of performance: ${place}` : undefined,
+    budget ? `Budget/value: ${budget}` : undefined,
+    "Forecast data is planning information; confirm active solicitation details on SAM.gov or the listed agency link before pursuing.",
+  ].filter((item): item is string => Boolean(item));
+
+  return {
+    id: `gsa-forecast:${sourceListingId}`,
+    resultType: "opportunity",
+    title,
+    buyer: "Federal agency forecast",
+    sourceName: "GSA Forecast of Contracting Opportunities",
+    sourceLevel: "Federal",
+    sourceState: "US",
+    sourceType: "GSA Acquisition Gateway Forecast Tool public suggestions/content API",
+    url: detailUrl,
+    portalUrl: GSA_FORECAST_URL,
+    score,
+    status: "Forecast/planned",
+    solicitationId: sourceListingId,
+    postedDate: estimatedSolicitationDate,
+    budget,
+    contact,
+    documents,
+    documentLinks,
+    submissionInstructions:
+      "Use the GSA Forecast detail to prepare early, then monitor SAM.gov and the listed agency contact/link for the official solicitation before submitting anything.",
+    applicationChecklist: applicationChecklist({
+      hasSolicitationId: Boolean(sourceListingId),
+      hasDeadline: false,
+      hasDocuments: documentLinks.length > 0,
+      hasContact: Boolean(contact),
+    }),
+    summary: [
+      body.slice(0, 320),
+      estimatedSolicitationDate ? `Estimated solicitation date: ${estimatedSolicitationDate}.` : "",
+      place ? `Place of performance: ${place}.` : "",
+      budget ? `Budget/value: ${budget}.` : "",
+    ]
+      .filter(Boolean)
+      .join(" "),
+    nextAction: "Open the GSA Forecast detail, save the agency contact, and set a reminder to watch SAM.gov for the formal solicitation.",
+  };
+}
+
+function gsaForecastSuggestionToResult(
+  suggestion: GsaForecastSuggestion,
+  query: string,
+  index: number,
+): UnifiedSearchResult | undefined {
+  if (!suggestion.id_node || suggestion.id_parent_group !== 2) {
+    return undefined;
+  }
+
+  const terms = conceptTerms(query);
+  const title = suggestion.title_node ?? suggestion.title;
+  const body = suggestion.body_node ?? suggestion.body ?? "";
+  if (!title) {
+    return undefined;
+  }
+
+  const haystack = [title, body].join(" ").toLowerCase();
+  const score = scoreOpportunity(haystack, terms, 68 - Math.min(index, 25));
+  if (terms.length > 0 && score <= 0) {
+    return undefined;
+  }
+
+  const detailUrl = `https://acquisitiongateway.gov/forecast/resources/${encodeURIComponent(String(suggestion.id_node))}`;
+  return {
+    id: `gsa-forecast:${suggestion.id_node}`,
+    resultType: "opportunity",
+    title,
+    buyer: "Federal agency forecast",
+    sourceName: "GSA Forecast of Contracting Opportunities",
+    sourceLevel: "Federal",
+    sourceState: "US",
+    sourceType: "GSA Acquisition Gateway Forecast Tool public suggestions API",
+    url: detailUrl,
+    portalUrl: GSA_FORECAST_URL,
+    score,
+    status: "Forecast/planned",
+    solicitationId: String(suggestion.id_node),
+    documents: ["Forecast row matched through the public GSA Acquisition Gateway suggestions API."],
+    documentLinks: [{ label: "GSA Forecast detail", url: detailUrl }],
+    submissionInstructions:
+      "Use the GSA Forecast detail to prepare early, then monitor SAM.gov and the listed agency contact/link for the official solicitation before submitting anything.",
+    applicationChecklist: applicationChecklist({
+      hasSolicitationId: true,
+      hasDeadline: false,
+      hasDocuments: true,
+      hasContact: false,
+    }),
+    summary: body.slice(0, 320),
+    nextAction: "Open the GSA Forecast detail, confirm the agency and forecast status, and watch SAM.gov for the formal solicitation.",
+  };
+}
+
+function gsaFieldValue(content: GsaForecastContent, field: string) {
+  const value = content[field]?.[0]?.value;
+  return typeof value === "string" || typeof value === "number" ? String(value) : undefined;
+}
+
+function gsaFieldTargetId(content: GsaForecastContent, field: string) {
+  const value = content[field]?.[0]?.target_id;
+  return typeof value === "string" || typeof value === "number" ? String(value) : undefined;
+}
+
+function gsaBodyText(content: GsaForecastContent) {
+  const body = content.body?.[0];
+  const processed = body?.processed;
+  const value = body?.value;
+  return typeof processed === "string" ? htmlToText(processed) : typeof value === "string" ? htmlToText(value) : "";
+}
+
+function gsaPeriodOfPerformance(content: GsaForecastContent) {
+  const period = content.field_period_of_performance?.[0];
+  const start = period?.value;
+  const end = period?.end_value;
+  if (typeof start !== "string" && typeof end !== "string") {
+    return undefined;
+  }
+
+  return [start, end].filter((value): value is string => typeof value === "string" && value.length > 0).join(" to ");
+}
+
+function gsaPlaceOfPerformance(content: GsaForecastContent) {
+  const place = content.field_place_of_performance?.[0];
+  if (!place) {
+    return undefined;
+  }
+
+  const parts = [place.locality, place.administrative_area, place.country_code].filter(
+    (value): value is string => typeof value === "string" && value.length > 0,
+  );
+  return parts.join(", ") || undefined;
+}
+
+function gsaContact(content: GsaForecastContent) {
+  const contact = [gsaFieldValue(content, "field_point_of_contact_name"), gsaFieldValue(content, "field_point_of_contact_email")]
+    .filter(Boolean)
+    .join(" | ");
+  const advisor = [gsaFieldValue(content, "field_advisor_info_name"), gsaFieldValue(content, "field_advisor_info_email")]
+    .filter(Boolean)
+    .join(" | ");
+  return contact || advisor || undefined;
+}
+
+function gsaBudget(content: GsaForecastContent) {
+  const value =
+    gsaFieldValue(content, "field_basic_exercised_value") ??
+    gsaFieldValue(content, "field_delivery_order_value") ??
+    gsaFieldValue(content, "field_current_fy_proj_obligation");
+  if (!value) {
+    return undefined;
+  }
+
+  const numeric = Number(value);
+  return Number.isFinite(numeric)
+    ? numeric.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })
+    : value;
+}
+
+function gsaLink(content: GsaForecastContent, field: string, baseUrl: string): OpportunityDocumentLink | undefined {
+  const link = content[field]?.[0];
+  const rawUrl = link?.uri ?? link?.url ?? link?.value;
+  const title = link?.title;
+  if (typeof rawUrl !== "string" || rawUrl.length === 0) {
+    return undefined;
+  }
+
+  const url = safeAbsoluteUrl(rawUrl, baseUrl);
+  return url ? { label: typeof title === "string" && title.length > 0 ? title : "Related solicitation link", url } : undefined;
+}
+
+async function searchOracleNegotiationAbstracts(query: string, source: OracleNegotiationSource): Promise<SearchTaskResult> {
+  try {
+    const html = await fetchOracleNegotiationAbstractHtml(source);
+    return {
+      source: source.sourceName,
+      results: parseOracleNegotiationAbstracts(html, query, source),
+    };
+  } catch (error) {
+    return { source: source.sourceName, results: [], error: errorMessage(error) };
+  }
+}
+
+async function fetchOracleNegotiationAbstractHtml(source: OracleNegotiationSource) {
+  const initial = await fetchOraclePageWithRedirects(source.pageUrl);
+  if (initial.status < 200 || initial.status >= 300) {
+    throw new Error(`Oracle Negotiation Abstracts returned ${initial.status}`);
+  }
+
+  if (initial.html.includes('AT1:_ATp:resId1') && initial.html.includes("_afrRK")) {
+    return initial.html;
+  }
+
+  const loopback = oracleLoopbackParams(initial.html);
+  if (!loopback) {
+    throw new Error("Oracle Negotiation Abstracts did not expose public table parameters");
+  }
+
+  const realPageUrl = oracleLoopbackUrl(source.pageUrl, loopback);
+  const realPage = await fetchOraclePageWithRedirects(realPageUrl, initial.cookieHeader, source.pageUrl);
+  if (realPage.status < 200 || realPage.status >= 300) {
+    throw new Error(`Oracle Negotiation Abstracts returned ${realPage.status}`);
+  }
+
+  return realPage.html;
+}
+
+async function fetchOraclePageWithRedirects(startUrl: string, cookieHeader = "", referer?: string) {
+  let currentUrl = startUrl;
+  let cookies = cookieHeader;
+
+  for (let redirectCount = 0; redirectCount < 8; redirectCount += 1) {
+    const response = await fetchWithTimeout(
+      currentUrl,
+      {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 GovContractFinder/0.1",
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.9",
+          ...(cookies ? { Cookie: cookies } : {}),
+          ...(referer ? { Referer: referer } : {}),
+        },
+        redirect: "manual",
+        cache: "no-store",
+      },
+      12000,
+    );
+    cookies = mergeCookieHeaders(cookies, cookieHeaderFromResponse(response));
+
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const location = response.headers.get("location");
+      if (!location) {
+        return { status: response.status, html: await response.text(), cookieHeader: cookies, finalUrl: currentUrl };
+      }
+
+      referer = currentUrl;
+      currentUrl = safeAbsoluteUrl(location, currentUrl) ?? location;
+      continue;
+    }
+
+    return { status: response.status, html: await response.text(), cookieHeader: cookies, finalUrl: currentUrl };
+  }
+
+  throw new Error("Oracle Negotiation Abstracts redirected too many times");
+}
+
+function oracleLoopbackParams(html: string) {
+  const afrLoop = html.match(/_addParam\(query,\s*["_']_afrLoop["_'],\s*["_']([^"']+)["']\)/)?.[1];
+  const ctrlState = html.match(/["_']_adf\.ctrl-state["_']\s*:\s*["_']([^"']+)["']/)?.[1];
+
+  return afrLoop && ctrlState ? { afrLoop, ctrlState } : undefined;
+}
+
+function oracleLoopbackUrl(pageUrl: string, params: { afrLoop: string; ctrlState: string }) {
+  const url = new URL(pageUrl);
+  url.searchParams.set("_afrLoop", params.afrLoop);
+  url.searchParams.set("_afrWindowMode", "0");
+  url.searchParams.set("_afrWindowId", "null");
+  url.searchParams.set("_afrMT", "screen");
+  url.searchParams.set("_afrFS", "16");
+  url.searchParams.set("_afrMFW", "1366");
+  url.searchParams.set("_afrMFH", "768");
+  url.searchParams.set("_afrMFDW", "1366");
+  url.searchParams.set("_afrMFDH", "768");
+  url.searchParams.set("_afrMFC", "8");
+  url.searchParams.set("_afrMFCI", "0");
+  url.searchParams.set("_afrMFM", "0");
+  url.searchParams.set("_afrMFR", "96");
+  url.searchParams.set("_afrMFG", "0");
+  url.searchParams.set("_afrMFS", "0");
+  url.searchParams.set("_afrMFO", "0");
+  url.searchParams.set("_adf.ctrl-state", params.ctrlState);
+  return url.toString();
+}
+
+function parseOracleNegotiationAbstracts(html: string, query: string, source: OracleNegotiationSource) {
+  const terms = conceptTerms(query);
+  const tableStart = html.indexOf('id="pt1:r1:0:pt1:AP1:AT1:_ATp:resId1"');
+  const fallbackTableStart = tableStart >= 0 ? tableStart : html.indexOf("AT1:_ATp:resId1");
+  const tableEnd =
+    fallbackTableStart >= 0 ? html.indexOf('id="pt1:r1:0:pt1:AP1:AT1:_ATp:_bTbx"', fallbackTableStart) : -1;
+  const tableHtml =
+    fallbackTableStart >= 0
+      ? html.slice(fallbackTableStart, tableEnd > fallbackTableStart ? tableEnd : undefined)
+      : html;
+  const rows = Array.from(tableHtml.matchAll(/<tr\b[^>]*\b_afrRK=(["'])[^"']+\1[^>]*>([\s\S]*?)<\/tr>/gi));
+
+  return rows
+    .map((row, index) => oracleNegotiationRowToResult(row[2], terms, index, source))
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+function oracleNegotiationRowToResult(
+  rowHtml: string,
+  terms: string[],
+  index: number,
+  source: OracleNegotiationSource,
+): UnifiedSearchResult | undefined {
+  const cells = Array.from(rowHtml.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)).map((cell) => cleanText(cell[1]));
+  if (cells.length < 7) {
+    return undefined;
+  }
+
+  const [solicitationId, title, negotiationType, status, postedDate, openDate, deadline] = cells;
+  if (!title || !solicitationId || !/active|amended|preview|upcoming/i.test(status)) {
+    return undefined;
+  }
+
+  if (isPastDeadline(deadline)) {
+    return undefined;
+  }
+
+  const haystack = [title, solicitationId, negotiationType, status, postedDate, openDate, deadline, source.buyer]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const score = scoreOpportunity(haystack, terms, 78 - Math.min(index, 35));
+  if (terms.length > 0 && score <= 0) {
+    return undefined;
+  }
+
+  const documents = [
+    `Negotiation type: ${negotiationType}`,
+    openDate ? `Open/publish date: ${openDate}` : undefined,
+    `Oracle portal dates are shown in ${source.timeZone}.`,
+    "Use the Details icon in the Oracle Negotiation Abstracts table to open official attachments, addenda, and response instructions.",
+  ].filter((item): item is string => Boolean(item));
+
+  return {
+    id: `oracle-negotiation:${source.sourceName}:${solicitationId}`,
+    resultType: "opportunity",
+    title,
+    buyer: source.buyer,
+    sourceName: source.sourceName,
+    sourceLevel: source.level,
+    sourceState: source.state,
+    sourceType: "Oracle Fusion public Negotiation Abstracts portal",
+    url: source.pageUrl,
+    portalUrl: source.pageUrl,
+    score,
+    status,
+    solicitationId,
+    deadline,
+    postedDate,
+    documents,
+    documentLinks: [{ label: "Oracle Negotiation Abstracts portal", url: source.pageUrl }],
+    submissionInstructions: source.submissionInstructions,
+    applicationChecklist: applicationChecklist({
+      hasSolicitationId: true,
+      hasDeadline: Boolean(deadline),
+      hasDocuments: true,
+      hasContact: false,
+    }),
+    summary: [
+      `${negotiationType || "Negotiation"} listed as ${status}.`,
+      postedDate ? `Posted ${postedDate}.` : "",
+      openDate ? `Opened ${openDate}.` : "",
+      deadline ? `Closes ${deadline}.` : "",
+    ]
+      .filter(Boolean)
+      .join(" "),
+    nextAction: "Open the Oracle portal, use the Details icon for this solicitation, download the official documents, and route it for human review.",
+  };
+}
+
+async function searchAdvantageVssPublishedSolicitations(query: string, source: AdvantageVssSource): Promise<SearchTaskResult> {
+  try {
+    const rows = await fetchAdvantageVssRows(source);
+    return {
+      source: source.sourceName,
+      results: parseAdvantageVssRows(rows, query, source),
+    };
+  } catch (error) {
+    return { source: source.sourceName, results: [], error: errorMessage(error) };
+  }
+}
+
+async function fetchAdvantageVssRows(source: AdvantageVssSource) {
+  const cacheKey = source.applicationUrl;
+  const cached = advantageVssRowsCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.rows;
+  }
+
+  const inFlight = advantageVssRowsInFlight.get(cacheKey);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const promise = fetchAdvantageVssRowsUncached(source)
+    .then((rows) => {
+      advantageVssRowsCache.set(cacheKey, { expiresAt: Date.now() + ADVANTAGE_VSS_SUCCESS_CACHE_MS, rows });
+      return rows;
+    })
+    .finally(() => {
+      advantageVssRowsInFlight.delete(cacheKey);
+    });
+
+  advantageVssRowsInFlight.set(cacheKey, promise);
+  return promise;
+}
+
+async function fetchAdvantageVssRowsUncached(source: AdvantageVssSource) {
+  const jar = { cookieHeader: "" };
+  const initialResponse = await fetchWithTimeout(
+    source.applicationUrl,
+    {
+      headers: {
+        "User-Agent": advantageVssUserAgent(),
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Upgrade-Insecure-Requests": "1",
+      },
+      cache: "no-store",
+    },
+    ADVANTAGE_VSS_FETCH_TIMEOUT_MS,
+  );
+
+  jar.cookieHeader = mergeCookieHeaders(jar.cookieHeader, cookieHeaderFromResponse(initialResponse));
+  if (!initialResponse.ok) {
+    throw new Error(`Advantage VSS returned ${initialResponse.status}`);
+  }
+
+  const initialHtml = await initialResponse.text();
+  const initial = extractJavascriptObject<AdvantageVssResponse>(initialHtml, "moInitialResponse");
+  const sessionId = initial.session_info?.session_id || initialResponse.headers.get("Adv-Session-Id") || undefined;
+  const csrfToken = initial.session_info?.csrf_token;
+  const conversationId = initialResponse.headers.get("Adv-Conversation-Id") || "null";
+  if (!sessionId || !csrfToken) {
+    throw new Error("Advantage VSS did not issue public session metadata");
+  }
+
+  const windowId = cryptoRandomId();
+  const startupLeaves = advantageVssStartupLeaves(initial.page_metadata);
+  let carousel: AdvantageVssResponse | undefined;
+  for (const [index, leaf] of startupLeaves.entries()) {
+    const response = await postAdvantageVssJson(
+      source.applicationUrl,
+      {
+        action: {
+          key: leaf.key,
+          actionType: "pageOpen",
+          params: {
+            targetLocation: leaf.targetLocation,
+            targetComponentType: leaf.targetComponentType,
+          },
+          targetQualifiedName: leaf.targetQualifiedName,
+          viewName: leaf.viewName ?? null,
+        },
+        session_info: {
+          session_id: sessionId,
+          csrf_token: csrfToken,
+        },
+      },
+      {
+        windowId,
+        cookieHeader: jar.cookieHeader,
+        requestId: String(index),
+        conversationId: "null",
+        sessionId: "null",
+        actionType: "pageOpen",
+        referer: source.applicationUrl,
+      },
+    );
+    jar.cookieHeader = mergeCookieHeaders(jar.cookieHeader, response.cookieHeader);
+    if (/carou/i.test(`${leaf.name ?? ""} ${leaf.key ?? ""}`)) {
+      carousel = response.json;
+    }
+  }
+
+  if (!carousel) {
+    throw new Error("Advantage VSS carousel action was not available");
+  }
+
+  const solicitationLeaf = advantageVssSolicitationLeaf(carousel.page_metadata);
+  const pageId = carousel.session_info?.page_id;
+  if (!solicitationLeaf?.key || !solicitationLeaf.targetQualifiedName || !pageId) {
+    throw new Error("Advantage VSS published solicitations page was not available");
+  }
+
+  const solicitationResponse = await postAdvantageVssJson(
+    source.applicationUrl,
+    {
+      action: {
+        params: {
+          targetLocation: "noDisplay",
+          targetComponentType: solicitationLeaf.targetComponentType || "SystemInquiryPage",
+        },
+        actionType: "pageOpen",
+        targetQualifiedName: solicitationLeaf.targetQualifiedName,
+      },
+      session_info: {
+        page_id: pageId,
+        csrf_token: csrfToken,
+        session_id: sessionId,
+      },
+      key: solicitationLeaf.key,
+      viewState: {
+        ...(carousel.page_metadata?.key
+          ? {
+              [carousel.page_metadata.key]: {
+                editable: false,
+                hidden: false,
+                closed: false,
+                required: false,
+                protected: false,
+              },
+            }
+          : {}),
+        TOP_LEVEL_KV_PAIRS_MAP: {},
+      },
+    },
+    {
+      windowId,
+      cookieHeader: jar.cookieHeader,
+      requestId: String(startupLeaves.length + 1),
+      conversationId,
+      sessionId,
+      pageId,
+      actionType: "pageOpen",
+      referer: source.applicationUrl,
+    },
+  );
+
+  jar.cookieHeader = mergeCookieHeaders(jar.cookieHeader, solicitationResponse.cookieHeader);
+  const rowSet = Object.values(solicitationResponse.json.data?.ds_data ?? {}).find((item) => Array.isArray(item?.row_data));
+  return rowSet?.row_data ?? [];
+}
+
+async function postAdvantageVssJson(
+  url: string,
+  body: unknown,
+  options: {
+    windowId: string;
+    cookieHeader: string;
+    requestId: string;
+    conversationId: string;
+    sessionId: string;
+    actionType: string;
+    referer: string;
+    pageId?: string;
+  },
+) {
+  const headers: Record<string, string> = {
+    "User-Agent": advantageVssUserAgent(),
+    Accept: "application/json, text/plain, */*",
+    "Content-Type": "application/json",
+    Referer: options.referer,
+    "Adv-Window-Id": options.windowId,
+    "Adv-Conversation-Id": options.conversationId,
+    "Adv-Session-Id": options.sessionId,
+    "Adv-Request-Id": options.requestId,
+    "Adv-Action-Type": options.actionType,
+    ...(options.pageId ? { "Adv-Page-Id": options.pageId } : {}),
+    ...(options.cookieHeader ? { Cookie: options.cookieHeader } : {}),
+  };
+  const response = await fetchWithTimeout(
+    url,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      cache: "no-store",
+    },
+    ADVANTAGE_VSS_FETCH_TIMEOUT_MS,
+  );
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`Advantage VSS returned ${response.status}`);
+  }
+
+  const json = JSON.parse(text) as AdvantageVssResponse;
+  if (text.includes("SessionInvalid")) {
+    throw new Error("Advantage VSS public session became invalid");
+  }
+
+  return {
+    json,
+    cookieHeader: cookieHeaderFromResponse(response),
+  };
+}
+
+function parseAdvantageVssRows(rows: AdvantageVssRow[], query: string, source: AdvantageVssSource) {
+  const terms = conceptTerms(query);
+
+  return rows
+    .filter((row) => advantageVssRowMatchesSource(row, source))
+    .map((row, index) => advantageVssRowToResult(row, terms, index, source, query))
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+function advantageVssRowMatchesSource(row: AdvantageVssRow, source: AdvantageVssSource) {
+  if (!source.departmentPattern) {
+    return true;
+  }
+
+  return source.departmentPattern.test([row.DEPT_NM, row.BUYR_NM, row.DOC_DSCR, row.DOC_CD_CONCAT].filter(Boolean).join(" "));
+}
+
+function advantageVssRowToResult(
+  row: AdvantageVssRow,
+  terms: string[],
+  index: number,
+  source: AdvantageVssSource,
+  query: string,
+): UnifiedSearchResult | undefined {
+  const title = row.DOC_DSCR?.trim();
+  const solicitationId = advantageVssSolicitationId(row);
+  const department = row.DEPT_NM?.trim();
+  const buyerName = row.BUYR_NM?.trim();
+  const deadline = formatAdvantageVssDate(row.SO_CLSNG_DT_TM, source.timeZone);
+  const postedDate = formatAdvantageVssDate(row.PUB_DT, source.timeZone, "date");
+  const amendedDate = formatAdvantageVssDate(row.AMND_DT, source.timeZone, "date");
+  const type = row.DOC_CD_CONCAT?.trim() || row.DOC_CD?.trim();
+  const status = advantageVssStatusLabel(row.SO_STA);
+  const contact = advantageVssContact(row);
+  const haystack = [
+    title,
+    solicitationId,
+    department,
+    buyerName,
+    type,
+    row.SO_CAT_CD,
+    status,
+    row.BUYR_EMAIL_AD,
+    "RFP RFQ IFB bid solicitation public procurement",
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const score = scoreOpportunity(haystack, terms, 74 - Math.min(index, 35));
+  const shouldRequireDirectSignal = hasTrainingBusinessIntent(normalizeConcept(query));
+
+  if (!title || (terms.length > 0 && (score <= 0 || (shouldRequireDirectSignal && !hasDirectConceptSignal(haystack, query))))) {
+    return undefined;
+  }
+
+  if (isPastDeadline(deadline)) {
+    return undefined;
+  }
+
+  const documents = [
+    solicitationId ? `Solicitation ID: ${solicitationId}` : undefined,
+    type ? `Type: ${type}` : undefined,
+    department ? `Department: ${department}` : undefined,
+    buyerName ? `Buyer: ${buyerName}` : undefined,
+    postedDate ? `Published: ${postedDate}` : undefined,
+    amendedDate ? `Amended: ${amendedDate}` : undefined,
+    "Official solicitation documents, addenda, and response forms are available from the solicitation row in the VSS portal.",
+  ].filter((item): item is string => Boolean(item));
+
+  return {
+    id: `advantage-vss:${source.sourceName}:${solicitationId || row.ADV_ROW_ID || title}`,
+    resultType: "opportunity",
+    title,
+    buyer: department || source.buyer,
+    sourceName: source.sourceName,
+    sourceLevel: source.level,
+    sourceState: source.state,
+    sourceType: source.sourceType,
+    url: source.applicationUrl,
+    portalUrl: source.portalUrl,
+    score,
+    status,
+    solicitationId,
+    deadline,
+    postedDate,
+    contact,
+    documents,
+    documentLinks: [{ label: `${source.sourceName} VSS published solicitation portal`, url: source.applicationUrl }],
+    submissionInstructions: source.submissionInstructions,
+    applicationChecklist: applicationChecklist({
+      hasSolicitationId: Boolean(solicitationId),
+      hasDeadline: Boolean(deadline),
+      hasDocuments: true,
+      hasContact: Boolean(contact),
+    }),
+    summary: [
+      type ? `${type}.` : "",
+      department ? `Department: ${department}.` : "",
+      buyerName ? `Buyer: ${buyerName}.` : "",
+      deadline ? `Closes ${deadline}.` : "",
+    ]
+      .filter(Boolean)
+      .join(" "),
+    nextAction:
+      "Open the VSS portal, find this solicitation ID in View Published Solicitations, download the official packet and addenda, then save it for draft response work.",
+  };
+}
+
+function advantageVssStartupLeaves(pageMetadata: AdvantageVssResponse["page_metadata"]) {
+  const leaves = walkAdvantageVssLeaves(pageMetadata).filter((leaf) =>
+    /logo|login|carou|AdvIntelligence|footer/i.test(`${leaf.name ?? ""} ${leaf.key ?? ""}`),
+  );
+
+  return leaves
+    .filter((leaf) => leaf.key && leaf.targetQualifiedName)
+    .sort((a, b) => advantageVssStartupOrder(a) - advantageVssStartupOrder(b));
+}
+
+function advantageVssStartupOrder(leaf: AdvantageVssActionLeaf) {
+  const label = `${leaf.name ?? ""} ${leaf.key ?? ""}`;
+  if (/logo/i.test(label)) {
+    return 0;
+  }
+  if (/login/i.test(label)) {
+    return 1;
+  }
+  if (/carou/i.test(label)) {
+    return 2;
+  }
+  if (/AdvIntelligence/i.test(label)) {
+    return 3;
+  }
+  if (/footer/i.test(label)) {
+    return 4;
+  }
+
+  return leaf.order ?? 10;
+}
+
+function advantageVssSolicitationLeaf(pageMetadata: AdvantageVssResponse["page_metadata"]) {
+  const leaves = walkAdvantageVssLeaves(pageMetadata);
+  return (
+    leaves.find((leaf) => /View Published Solicitations/i.test(leaf.title ?? "")) ??
+    leaves.find((leaf) => /solicit/i.test(`${leaf.name ?? ""} ${leaf.key ?? ""} ${leaf.title ?? ""}`))
+  );
+}
+
+function walkAdvantageVssLeaves(value: unknown, leaves: AdvantageVssActionLeaf[] = []) {
+  if (!value || typeof value !== "object") {
+    return leaves;
+  }
+
+  const maybeContainer = value as {
+    leafElemsMap?: Record<string, AdvantageVssActionLeaf>;
+    containerElemsMap?: Record<string, unknown>;
+  };
+  for (const leaf of Object.values(maybeContainer.leafElemsMap ?? {})) {
+    leaves.push(leaf);
+  }
+  for (const child of Object.values(maybeContainer.containerElemsMap ?? {})) {
+    walkAdvantageVssLeaves(child, leaves);
+  }
+
+  return leaves;
+}
+
+function extractJavascriptObject<T>(html: string, assignmentName: string): T {
+  const marker = `var ${assignmentName} = `;
+  const markerIndex = html.indexOf(marker);
+  if (markerIndex < 0) {
+    throw new Error(`${assignmentName} was not found`);
+  }
+
+  const start = html.indexOf("{", markerIndex + marker.length);
+  if (start < 0) {
+    throw new Error(`${assignmentName} did not contain an object`);
+  }
+
+  let depth = 0;
+  let inString = false;
+  let quote = "";
+  let escaped = false;
+  for (let index = start; index < html.length; index += 1) {
+    const character = html[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === quote) {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (character === "\"" || character === "'") {
+      inString = true;
+      quote = character;
+      continue;
+    }
+
+    if (character === "{") {
+      depth += 1;
+    } else if (character === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return JSON.parse(html.slice(start, index + 1)) as T;
+      }
+    }
+  }
+
+  throw new Error(`${assignmentName} object was not closed`);
+}
+
+function advantageVssSolicitationId(row: AdvantageVssRow) {
+  const docRef = row.DOC_REF?.trim();
+  if (!docRef) {
+    return undefined;
+  }
+
+  return docRef.match(/\]\[([^\]]+)\]/)?.[1] ?? docRef.replace(/^\[|\]$/g, "");
+}
+
+function advantageVssStatusLabel(status?: string) {
+  const code = status?.trim().toUpperCase();
+  switch (code) {
+    case "O":
+      return "Open";
+    case "A":
+      return "Amended";
+    case "C":
+      return "Closed";
+    case "X":
+      return "Cancelled";
+    default:
+      return status?.trim() || "Published";
+  }
+}
+
+function advantageVssContact(row: AdvantageVssRow) {
+  return [row.BUYR_NM, row.BUYR_EMAIL_AD, row.BUYR_PH_NO].filter(Boolean).join(" | ") || undefined;
+}
+
+function formatAdvantageVssDate(value: number | string | undefined, timeZone: string, mode: "date" | "dateTime" = "dateTime") {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+
+  const numeric = typeof value === "number" ? value : Number(value);
+  const parsed = Number.isFinite(numeric) ? new Date(numeric) : new Date(String(value));
+  if (Number.isNaN(parsed.getTime())) {
+    return String(value);
+  }
+
+  return mode === "date"
+    ? parsed.toLocaleDateString("en-US", { month: "numeric", day: "numeric", year: "numeric", timeZone })
+    : parsed.toLocaleString("en-US", {
+        month: "numeric",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        timeZoneName: "short",
+        timeZone,
+      });
+}
+
+function advantageVssUserAgent() {
+  return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36 GovContractFinder/0.1";
+}
+
+function cryptoRandomId() {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 function workdaySessionFromHeaders(headers: Headers, previous?: WorkdaySession): WorkdaySession {
   const cookieValues = new Map<string, string>();
 
@@ -4249,6 +6368,115 @@ async function searchViaProcurement(query: string): Promise<SearchTaskResult> {
   } catch (error) {
     return { source, results: [], error: errorMessage(error) };
   }
+}
+
+async function searchCpsEnergyProcurement(query: string): Promise<SearchTaskResult> {
+  const source = "CPS Energy Procurement and Suppliers";
+  try {
+    const response = await fetchPublicPage(CPS_ENERGY_B2GNOW_PROPOSALS_URL);
+    if (!response.ok) {
+      return { source, results: [], error: `CPS Energy public proposal search returned ${response.status}` };
+    }
+
+    return { source, results: parseCpsEnergyProcurement(await response.text(), query) };
+  } catch (error) {
+    return { source, results: [], error: errorMessage(error) };
+  }
+}
+
+function parseCpsEnergyProcurement(html: string, query: string): UnifiedSearchResult[] {
+  const terms = conceptTerms(query);
+  const detailPrefix =
+    html.match(/src=(["'])([^"']*ProposalSearchPublicDetail\.asp\?XID=\d+&TN=cpsenergy&PID=)\1/i)?.[2] ??
+    "/FrontEnd/ProposalSearchPublicDetail.asp?TN=cpsenergy&PID=";
+  const tiles = Array.from(html.matchAll(/<a class='RecordTile' href="javascript:\s*ViewDetail\('([^']+)'\)">([\s\S]*?)(?=<a class='RecordTile'|<\/form>)/gi));
+
+  return tiles
+    .map((tile, index): UnifiedSearchResult | undefined => {
+      const detailId = tile[1];
+      const tileHtml = tile[2];
+      const tileText = htmlToText(tileHtml);
+      const deadline = cleanText(tileHtml.match(/<div class='DateDue'><div class='Label'>Due<\/div>([\s\S]*?)<\/div>/i)?.[1] ?? "");
+      const questionsDeadline = cleanText(
+        tileHtml.match(/<div class='DateQuestions'><div class='Label'>Question Deadline<\/div>([\s\S]*?)<\/div>/i)?.[1] ?? "",
+      );
+      const preBidConference = cleanText(
+        tileHtml.match(/<div class='DatePreBidConference'><div class='Label'>Pre-Bid Conference<\/div>([\s\S]*?)<\/div>/i)?.[1] ?? "",
+      );
+      const status = cleanText(tileHtml.match(/<div class='Status'[^>]*><strong>([\s\S]*?)<\/strong><\/div>/i)?.[1] ?? "Open");
+      const description = cpsEnergyTileDescription(tileText, { deadline, questionsDeadline, preBidConference, status });
+      const solicitationId = description.match(/^([A-Z0-9-]{5,})\s+-/i)?.[1];
+      const haystack = [description, solicitationId, status, questionsDeadline, preBidConference, "CPS Energy B2GNow bid opportunity"].filter(Boolean).join(" ").toLowerCase();
+      const score = scoreOpportunity(haystack, terms, 70 - Math.min(index, 25));
+
+      if (!description || (terms.length > 0 && score <= 0)) {
+        return undefined;
+      }
+
+      if (isPastDeadline(deadline)) {
+        return undefined;
+      }
+
+      const detailUrl = safeAbsoluteUrl(`${detailPrefix}${encodeURIComponent(detailId)}`, CPS_ENERGY_B2GNOW_PROPOSALS_URL) ?? CPS_ENERGY_B2GNOW_PROPOSALS_URL;
+      const documents = [
+        questionsDeadline ? `Question deadline: ${questionsDeadline}` : undefined,
+        preBidConference ? `Pre-bid conference: ${preBidConference}` : undefined,
+        "Official solicitation details and response options are available from the CPS Energy B2GNow detail page.",
+      ].filter((item): item is string => Boolean(item));
+
+      return {
+        id: `cps-energy:${detailId}`,
+        resultType: "opportunity",
+        title: description,
+        buyer: "CPS Energy",
+        sourceName: "CPS Energy Procurement and Suppliers",
+        sourceLevel: "Adjacent",
+        sourceState: "TX",
+        sourceType: "B2GNow public proposal search",
+        url: detailUrl,
+        portalUrl: CPS_ENERGY_B2GNOW_PROPOSALS_URL,
+        score,
+        status,
+        solicitationId,
+        deadline,
+        documents,
+        documentLinks: [{ label: "CPS Energy B2GNow proposal detail and documents", url: detailUrl }],
+        submissionInstructions:
+          "Open the CPS Energy B2GNow detail page, create or sign into the supplier account if required, download the solicitation documents and addenda, and submit through the portal before the due date.",
+        applicationChecklist: applicationChecklist({
+          hasSolicitationId: Boolean(solicitationId),
+          hasDeadline: Boolean(deadline),
+          hasDocuments: true,
+          hasContact: false,
+        }),
+        summary: [solicitationId ? `Reference ${solicitationId}.` : "", deadline ? `Due ${deadline}.` : "", questionsDeadline ? `Questions due ${questionsDeadline}.` : ""]
+          .filter(Boolean)
+          .join(" "),
+        nextAction: "Open the CPS Energy B2GNow detail page, confirm scope and documents, then route it for human review if it fits.",
+      };
+    })
+    .filter((result): result is UnifiedSearchResult => Boolean(result))
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
+function cpsEnergyTileDescription(
+  tileText: string,
+  fields: { deadline?: string; questionsDeadline?: string; preBidConference?: string; status?: string },
+) {
+  let description = tileText;
+  for (const value of [fields.deadline, fields.questionsDeadline, fields.preBidConference, fields.status]) {
+    if (value) {
+      description = description.replace(value, " ");
+    }
+  }
+
+  return cleanText(
+    description
+      .replace(/\bDue\b/gi, " ")
+      .replace(/\bQuestion Deadline\b/gi, " ")
+      .replace(/\bPre-Bid Conference\b/gi, " ")
+      .replace(/\bUS\/Central\b/gi, " "),
+  );
 }
 
 function parseViaProcurement(html: string, query: string): UnifiedSearchResult[] {
@@ -5035,7 +7263,7 @@ function sourceStatusFromTaskResult(result: SearchTaskResult): SourceSearchStatu
 }
 
 function isPendingConnectorIssue(error: string) {
-  return /rate limited|returned 429|timed out|not completed/i.test(error);
+  return /rate limited|returned 429|returned 503|service unavailable|timed out|not completed/i.test(error);
 }
 
 function pendingSourceMessage(sourceName: string) {
@@ -5062,6 +7290,10 @@ function connectorMessage(error: string) {
 
   if (/returned 429/i.test(error)) {
     return "Rate limited by the source; cached cooldown is active.";
+  }
+
+  if (/returned 503|service unavailable/i.test(error)) {
+    return "Source service is temporarily unavailable; retry after cooldown.";
   }
 
   if (/timed out|not completed/i.test(error)) {
@@ -5158,7 +7390,11 @@ function resultRankScore(result: UnifiedSearchResult) {
 
 function searchTaskPriority(sourceName: string) {
   if (TEXAS_IONWAVE_SOURCE_BY_NAME.has(sourceName)) {
-    return 3;
+    return 0;
+  }
+
+  if (TEXAS_BONFIRE_SOURCE_BY_NAME.has(sourceName)) {
+    return 0;
   }
 
   if (/SAM.gov|Texas Electronic State Business Daily|Texas ESBD|Sourcewell|NASPO|OMNIA|BuyBoard|Choice Partners|Texas DIR/i.test(sourceName)) {
@@ -5256,11 +7492,12 @@ function parseDeadlineDate(deadline?: string) {
     return new Date(year, month - 1, day);
   }
 
-  const numericMatch = deadline.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  const numericMatch = deadline.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
   if (numericMatch) {
     const month = Number(numericMatch[1]);
     const day = Number(numericMatch[2]);
-    const year = Number(numericMatch[3]);
+    const rawYear = Number(numericMatch[3]);
+    const year = rawYear < 100 ? 2000 + rawYear : rawYear;
     if (!month || !day || !year) {
       return undefined;
     }
@@ -5536,13 +7773,14 @@ async function runBonfireQueued<T>(task: () => Promise<T>): Promise<T> {
   }
 }
 
-async function runIonWaveQueued<T>(task: () => Promise<T>): Promise<T> {
-  const globalStore = globalThis as typeof globalThis & { __govContractFinderIonWaveQueue?: Promise<void> };
-  const previous = globalStore.__govContractFinderIonWaveQueue ?? Promise.resolve();
+async function runIonWaveQueued<T>(task: () => Promise<T>, queueKey = "default"): Promise<T> {
+  const globalStore = globalThis as typeof globalThis & { __govContractFinderIonWaveQueues?: Map<string, Promise<void>> };
+  const queues = (globalStore.__govContractFinderIonWaveQueues ??= new Map<string, Promise<void>>());
+  const previous = queues.get(queueKey) ?? Promise.resolve();
   let release!: () => void;
-  globalStore.__govContractFinderIonWaveQueue = new Promise<void>((resolve) => {
+  queues.set(queueKey, new Promise<void>((resolve) => {
     release = resolve;
-  });
+  }));
 
   await previous.catch(() => undefined);
   try {
@@ -5579,6 +7817,41 @@ function htmlFieldFromSpan(html: string, label: string) {
   const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const value = html.match(new RegExp(`<span>${escapedLabel}:\\s*([\\s\\S]*?)<\\/span>`, "i"))?.[1];
   return value ? htmlToText(value) : undefined;
+}
+
+function htmlAttributeValue(html: string, name: string) {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const value = html.match(new RegExp(`${escapedName}=(["'])([\\s\\S]*?)\\1`, "i"))?.[2];
+  return value ? decodeHtml(value) : undefined;
+}
+
+function cookieHeaderFromResponse(response: Response) {
+  const responseHeaders = response.headers as Headers & { getSetCookie?: () => string[] };
+  const setCookieHeaders = responseHeaders.getSetCookie?.() ?? (response.headers.get("set-cookie") ? [response.headers.get("set-cookie") as string] : []);
+  return setCookieHeaders
+    .flatMap((header) => header.split(/,(?=\s*[^;,]+=)/))
+    .map((header) => header.split(";")[0]?.trim())
+    .filter(Boolean)
+    .join("; ");
+}
+
+function mergeCookieHeaders(...headers: Array<string | undefined>) {
+  const cookies = new Map<string, string>();
+  for (const header of headers) {
+    for (const cookie of header?.split(";") ?? []) {
+      const trimmed = cookie.trim();
+      const separatorIndex = trimmed.indexOf("=");
+      if (separatorIndex <= 0) {
+        continue;
+      }
+
+      cookies.set(trimmed.slice(0, separatorIndex), trimmed.slice(separatorIndex + 1));
+    }
+  }
+
+  return Array.from(cookies.entries())
+    .map(([name, value]) => `${name}=${value}`)
+    .join("; ");
 }
 
 function extractAnchorLinks(html: string, baseUrl: string): OpportunityDocumentLink[] {
@@ -5733,7 +8006,9 @@ function decodeHtml(value: string) {
     .replace(/&#39;/g, "'")
     .replace(/&nbsp;/g, " ")
     .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">");
+    .replace(/&gt;/g, ">")
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCharCode(Number.parseInt(code, 16)))
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
 }
 
 function formatSamDate(date: Date) {
