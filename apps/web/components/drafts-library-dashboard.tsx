@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpRight, CheckCircle2, ClipboardCheck, Copy, FileText, RefreshCw, Save, Settings, Trash2 } from "lucide-react";
+import { ArrowUpRight, Bell, CheckCircle2, ClipboardCheck, Copy, FileText, RefreshCw, Save, Settings, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { ApprovedResponseBlockRecord, ProposalDraftRecord } from "@/lib/gov-types";
 
@@ -113,6 +113,13 @@ export function DraftsLibraryDashboard() {
                 href="/"
               >
                 Search
+              </a>
+              <a
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                href="/monitor"
+              >
+                <Bell className="size-4" />
+                <span>Monitor</span>
               </a>
               <a
                 className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"

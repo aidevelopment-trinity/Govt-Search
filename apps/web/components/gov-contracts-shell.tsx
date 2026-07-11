@@ -2,6 +2,7 @@
 
 import {
   AlertTriangle,
+  Bell,
   Building2,
   CalendarClock,
   ChevronDown,
@@ -312,6 +313,13 @@ export function GovContractsShell({
               <span>{sources.length} sources</span>
             </div>
             <div className="flex shrink-0 flex-wrap gap-2">
+              <a
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                href="/monitor"
+              >
+                <Bell className="size-4" />
+                <span>Monitor</span>
+              </a>
               <a
                 className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
                 href="/proposals"

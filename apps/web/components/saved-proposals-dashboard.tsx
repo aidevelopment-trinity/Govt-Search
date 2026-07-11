@@ -3,6 +3,7 @@
 import {
   AlertTriangle,
   ArrowUpRight,
+  Bell,
   Building2,
   CalendarClock,
   CheckCircle2,
@@ -90,6 +91,13 @@ export function SavedProposalsDashboard() {
               <p className="text-sm text-slate-500">Review the opportunities you want to pursue, update status, and keep working notes in one place.</p>
             </div>
             <div className="flex flex-wrap gap-2">
+              <a
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                href="/monitor"
+              >
+                <Bell className="size-4" />
+                <span>Monitor</span>
+              </a>
               <a
                 className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
                 href="/drafts"

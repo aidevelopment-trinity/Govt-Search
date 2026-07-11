@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, ClipboardList, FileText, RefreshCw, Search, Settings } from "lucide-react";
+import { AlertTriangle, Bell, CheckCircle2, ClipboardList, FileText, RefreshCw, Search, Settings } from "lucide-react";
 import { useEffect, useState } from "react";
 
 type HealthResponse = {
@@ -65,6 +65,7 @@ export function SetupStatusDashboard() {
             </div>
             <div className="flex flex-wrap gap-2">
               <NavButton href="/" icon={Search} label="Search" />
+              <NavButton href="/monitor" icon={Bell} label="Monitor" />
               <NavButton href="/proposals" icon={ClipboardList} label="Proposals" />
               <NavButton href="/drafts" icon={FileText} label="Drafts" />
               <button
