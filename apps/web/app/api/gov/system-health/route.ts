@@ -3,6 +3,9 @@ import { isGoogleDocsConfigured } from "@/lib/google-docs";
 import {
   getCompanyProfile,
   isSupabaseConfigured,
+  listMonitorFindings,
+  listMonitorRuns,
+  listMonitorSearches,
   listApprovedResponseBlocks,
   listProposalDrafts,
   listTrackedOpportunities,
@@ -15,6 +18,7 @@ export async function GET() {
   const googleDocsConfigured = isGoogleDocsConfigured();
   const googleDriveFolderConfigured = Boolean(process.env.GOOGLE_DRIVE_FOLDER_ID);
   const googleReviewerConfigured = Boolean(process.env.GOOGLE_DOC_REVIEWER_EMAIL);
+  const cronSecretConfigured = Boolean(process.env.CRON_SECRET);
 
   const health = {
     ok: true,
@@ -35,6 +39,13 @@ export async function GET() {
           ? "Google service account credentials are present. Create a proposal draft to test Google Doc creation."
           : "Add Google service account email and private key in Vercel to create Google Docs.",
       },
+      monitoring: {
+        configured: false,
+        schemaReady: false,
+        cronSecretConfigured,
+        status: "checking",
+        message: "Checking monitoring schema and scheduled run configuration.",
+      },
     },
     counts: {
       trackedOpportunities: 0,
@@ -47,24 +58,39 @@ export async function GET() {
   };
 
   if (supabaseConfigured) {
-    const [tracked, drafts, blocks, companyProfile] = await Promise.all([
+    const [tracked, drafts, blocks, companyProfile, monitorSearches, monitorRuns, monitorFindings] = await Promise.all([
       listTrackedOpportunities(),
       listProposalDrafts(),
       listApprovedResponseBlocks(),
       getCompanyProfile(),
+      listMonitorSearches(),
+      listMonitorRuns(),
+      listMonitorFindings(1),
     ]);
 
     health.checks.push(checkResult("Tracked opportunities", tracked));
     health.checks.push(checkResult("Proposal drafts", drafts));
     health.checks.push(checkResult("Approved response blocks", blocks));
     health.checks.push(checkResult("Company profile", companyProfile));
+    health.checks.push(checkResult("Monitor searches", monitorSearches));
+    health.checks.push(checkResult("Monitor runs", monitorRuns));
+    health.checks.push(checkResult("Monitor findings", monitorFindings));
 
     const supabaseOk = [tracked, drafts, blocks, companyProfile].every((result) => result.ok);
+    const monitorSchemaOk = [monitorSearches, monitorRuns, monitorFindings].every((result) => result.ok);
     health.services.supabase.reachable = supabaseOk;
     health.services.supabase.status = supabaseOk ? "ready" : "error";
     health.services.supabase.message = supabaseOk
       ? "Supabase is connected and core tables are readable."
       : "Supabase is configured, but one or more tables could not be read.";
+    health.services.monitoring.configured = monitorSchemaOk && cronSecretConfigured;
+    health.services.monitoring.schemaReady = monitorSchemaOk;
+    health.services.monitoring.status = monitorSchemaOk ? (cronSecretConfigured ? "ready" : "missing_cron_secret") : "missing_schema";
+    health.services.monitoring.message = monitorSchemaOk
+      ? cronSecretConfigured
+        ? "Monitoring schema and cron secret are ready."
+        : "Monitoring schema is ready. Add CRON_SECRET in Vercel so scheduled runs can execute."
+      : "Run the monitoring SQL migration in Supabase.";
 
     health.counts.trackedOpportunities = tracked.ok ? tracked.data.length : 0;
     health.counts.proposalDrafts = drafts.ok ? drafts.data.length : 0;
@@ -76,6 +102,14 @@ export async function GET() {
     health.nextSteps.push("Add Supabase environment variables in Vercel and run the SQL schema.");
   } else if (!health.services.supabase.reachable) {
     health.nextSteps.push("Review the Supabase table errors and rerun the schema if a table is missing.");
+  }
+
+  if (!health.services.monitoring.schemaReady) {
+    health.nextSteps.push("Run docs/supabase-monitoring-migration.sql in Supabase SQL Editor.");
+  }
+
+  if (!health.services.monitoring.cronSecretConfigured) {
+    health.nextSteps.push("Add CRON_SECRET in Vercel production environment variables.");
   }
 
   if (!health.counts.companyProfile) {

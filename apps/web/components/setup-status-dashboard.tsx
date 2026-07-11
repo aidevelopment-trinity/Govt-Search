@@ -20,6 +20,13 @@ type HealthResponse = {
       status: string;
       message: string;
     };
+    monitoring: {
+      configured: boolean;
+      schemaReady: boolean;
+      cronSecretConfigured: boolean;
+      status: string;
+      message: string;
+    };
   };
   counts: {
     trackedOpportunities: number;
@@ -88,13 +95,24 @@ export function SetupStatusDashboard() {
 
         {health && status === "ready" ? (
           <>
-            <div className="grid gap-3 lg:grid-cols-2">
+            <div className="grid gap-3 lg:grid-cols-3">
               <ServiceCard
                 title="Supabase"
                 ok={health.services.supabase.configured && health.services.supabase.reachable}
                 status={health.services.supabase.status}
                 message={health.services.supabase.message}
               />
+              <ServiceCard
+                title="Monitoring"
+                ok={health.services.monitoring.configured}
+                status={health.services.monitoring.status}
+                message={health.services.monitoring.message}
+              >
+                <div className="mt-3 grid gap-2 text-sm text-slate-600 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+                  <SetupFlag label="Schema" ok={health.services.monitoring.schemaReady} />
+                  <SetupFlag label="Cron secret" ok={health.services.monitoring.cronSecretConfigured} />
+                </div>
+              </ServiceCard>
               <ServiceCard
                 title="Google Docs"
                 ok={health.services.googleDocs.configured}
