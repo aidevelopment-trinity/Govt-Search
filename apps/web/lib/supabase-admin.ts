@@ -148,6 +148,43 @@ export type MonitorFindingRecord = {
   created_at: string;
 };
 
+export type EmailSubscriberRecord = {
+  id: string;
+  email: string;
+  display_name: string | null;
+  unsubscribe_token: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type KeywordSubscriptionRecord = {
+  id: string;
+  subscriber_id: string;
+  saved_search_id: string;
+  frequency: "instant" | "daily" | "weekly";
+  is_active: boolean;
+  last_notified_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type NotificationDeliveryRecord = {
+  id: string;
+  subscriber_id: string | null;
+  saved_search_id: string | null;
+  monitor_run_id: string | null;
+  delivery_type: "instant" | "daily" | "weekly" | "test";
+  status: "pending" | "sent" | "failed" | "skipped";
+  subject: string;
+  finding_ids: string[];
+  resend_email_id: string | null;
+  error_message: string | null;
+  sent_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 type UpdateTrackedOpportunityInput = {
   id: string;
   pursuitStatus?: string;
@@ -384,6 +421,13 @@ export async function listMonitorFindings(limit = 100) {
   return supabaseRequest<MonitorFindingRecord[]>("monitor_findings", {
     query:
       `?select=id,run_id,saved_search_id,seen_opportunity_id,source_result_id,finding_type,title,source_name,source_level,source_state,buyer,solicitation_id,old_deadline,new_deadline,opportunity_url,document_links,raw_result,created_at&order=created_at.desc&limit=${Math.max(1, Math.min(limit, 200))}`,
+  });
+}
+
+export async function listMonitorFindingsForSearchSince(savedSearchId: string, since: string, limit = 50) {
+  return supabaseRequest<MonitorFindingRecord[]>("monitor_findings", {
+    query:
+      `?saved_search_id=eq.${encodeURIComponent(savedSearchId)}&created_at=gt.${encodeURIComponent(since)}&select=id,run_id,saved_search_id,seen_opportunity_id,source_result_id,finding_type,title,source_name,source_level,source_state,buyer,solicitation_id,old_deadline,new_deadline,opportunity_url,document_links,raw_result,created_at&order=created_at.asc&limit=${Math.max(1, Math.min(limit, 100))}`,
   });
 }
 
@@ -688,6 +732,188 @@ export async function createApprovedResponseBlock(input: {
       },
     ],
   });
+}
+
+export async function listEmailSubscribers() {
+  return supabaseRequest<EmailSubscriberRecord[]>("email_subscribers", {
+    query: "?select=id,email,display_name,unsubscribe_token,is_active,created_at,updated_at&order=created_at.desc&limit=250",
+  });
+}
+
+export async function upsertEmailSubscriber(input: { email: string; displayName?: string | null; active?: boolean }) {
+  return supabaseRequest<EmailSubscriberRecord[]>("email_subscribers", {
+    method: "POST",
+    query: "?on_conflict=email",
+    body: [
+      {
+        email: input.email.trim().toLowerCase(),
+        display_name: input.displayName?.trim() || null,
+        is_active: input.active ?? true,
+      },
+    ],
+  });
+}
+
+export async function updateEmailSubscriber(input: { id: string; displayName?: string | null; isActive?: boolean }) {
+  const updates: Record<string, JsonValue> = {};
+
+  if (input.displayName !== undefined) {
+    updates.display_name = input.displayName?.trim() || null;
+  }
+
+  if (input.isActive !== undefined) {
+    updates.is_active = input.isActive;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return { ok: false as const, configured: Boolean(getSupabaseConfig()), error: "No subscriber updates were provided." };
+  }
+
+  return supabaseRequest<EmailSubscriberRecord[]>("email_subscribers", {
+    method: "PATCH",
+    query: `?id=eq.${encodeURIComponent(input.id)}`,
+    body: updates,
+  });
+}
+
+export async function listKeywordSubscriptions() {
+  return supabaseRequest<KeywordSubscriptionRecord[]>("keyword_subscriptions", {
+    query: "?select=id,subscriber_id,saved_search_id,frequency,is_active,last_notified_at,created_at,updated_at&order=created_at.desc&limit=500",
+  });
+}
+
+export async function createKeywordSubscription(input: {
+  subscriberId: string;
+  savedSearchId: string;
+  frequency?: "instant" | "daily" | "weekly";
+  active?: boolean;
+}) {
+  return supabaseRequest<KeywordSubscriptionRecord[]>("keyword_subscriptions", {
+    method: "POST",
+    query: "?on_conflict=subscriber_id,saved_search_id",
+    body: [
+      {
+        subscriber_id: input.subscriberId,
+        saved_search_id: input.savedSearchId,
+        frequency: input.frequency ?? "daily",
+        is_active: input.active ?? true,
+        last_notified_at: new Date().toISOString(),
+      },
+    ],
+  });
+}
+
+export async function updateKeywordSubscription(input: {
+  id: string;
+  frequency?: "instant" | "daily" | "weekly";
+  isActive?: boolean;
+  lastNotifiedAt?: string | null;
+}) {
+  const updates: Record<string, JsonValue> = {};
+
+  if (input.frequency) {
+    updates.frequency = input.frequency;
+  }
+
+  if (input.isActive !== undefined) {
+    updates.is_active = input.isActive;
+  }
+
+  if (input.lastNotifiedAt !== undefined) {
+    updates.last_notified_at = input.lastNotifiedAt;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return { ok: false as const, configured: Boolean(getSupabaseConfig()), error: "No keyword subscription updates were provided." };
+  }
+
+  return supabaseRequest<KeywordSubscriptionRecord[]>("keyword_subscriptions", {
+    method: "PATCH",
+    query: `?id=eq.${encodeURIComponent(input.id)}`,
+    body: updates,
+  });
+}
+
+export async function deleteKeywordSubscription(id: string) {
+  return supabaseRequest<KeywordSubscriptionRecord[]>("keyword_subscriptions", {
+    method: "DELETE",
+    query: `?id=eq.${encodeURIComponent(id)}&select=id,subscriber_id,saved_search_id,frequency,is_active,last_notified_at,created_at,updated_at`,
+  });
+}
+
+export async function listNotificationDeliveries(limit = 50) {
+  return supabaseRequest<NotificationDeliveryRecord[]>("notification_deliveries", {
+    query:
+      `?select=id,subscriber_id,saved_search_id,monitor_run_id,delivery_type,status,subject,finding_ids,resend_email_id,error_message,sent_at,created_at,updated_at&order=created_at.desc&limit=${Math.max(1, Math.min(limit, 100))}`,
+  });
+}
+
+export async function createNotificationDelivery(input: {
+  subscriberId?: string | null;
+  savedSearchId?: string | null;
+  monitorRunId?: string | null;
+  deliveryType: "instant" | "daily" | "weekly" | "test";
+  subject: string;
+  findingIds?: string[];
+}) {
+  return supabaseRequest<NotificationDeliveryRecord[]>("notification_deliveries", {
+    method: "POST",
+    body: [
+      {
+        subscriber_id: input.subscriberId ?? null,
+        saved_search_id: input.savedSearchId ?? null,
+        monitor_run_id: input.monitorRunId ?? null,
+        delivery_type: input.deliveryType,
+        status: "pending",
+        subject: input.subject,
+        finding_ids: (input.findingIds ?? []) as JsonValue,
+      },
+    ],
+  });
+}
+
+export async function updateNotificationDelivery(input: {
+  id: string;
+  status: "sent" | "failed" | "skipped";
+  resendEmailId?: string | null;
+  errorMessage?: string | null;
+}) {
+  return supabaseRequest<NotificationDeliveryRecord[]>("notification_deliveries", {
+    method: "PATCH",
+    query: `?id=eq.${encodeURIComponent(input.id)}`,
+    body: {
+      status: input.status,
+      resend_email_id: input.resendEmailId ?? null,
+      error_message: input.errorMessage ?? null,
+      sent_at: input.status === "sent" ? new Date().toISOString() : null,
+    },
+  });
+}
+
+export async function unsubscribeEmailSubscriberByToken(token: string) {
+  if (!token.trim()) {
+    return { ok: false as const, configured: Boolean(getSupabaseConfig()), error: "Missing unsubscribe token." };
+  }
+
+  const subscriberResult = await supabaseRequest<EmailSubscriberRecord[]>("email_subscribers", {
+    method: "PATCH",
+    query: `?unsubscribe_token=eq.${encodeURIComponent(token.trim())}`,
+    body: { is_active: false },
+  });
+
+  if (!subscriberResult.ok || !subscriberResult.data[0]) {
+    return subscriberResult.ok
+      ? { ok: false as const, configured: true as const, error: "Subscriber was not found." }
+      : subscriberResult;
+  }
+
+  await supabaseRequest<KeywordSubscriptionRecord[]>("keyword_subscriptions", {
+    method: "PATCH",
+    query: `?subscriber_id=eq.${encodeURIComponent(subscriberResult.data[0].id)}`,
+    body: { is_active: false },
+  });
+
+  return subscriberResult;
 }
 
 export async function recordSourceHealth(items: SourceHealthInput[]) {

@@ -7,6 +7,7 @@ import {
   ClipboardList,
   ExternalLink,
   FileText,
+  Mail,
   PauseCircle,
   Play,
   Plus,
@@ -244,6 +245,7 @@ export function MonitorDashboard() {
             </div>
             <div className="flex flex-wrap gap-2">
               <NavButton href="/" icon={Search} label="Search" />
+              <NavButton href="/notifications" icon={Mail} label="Email" />
               <NavButton href="/proposals" icon={ClipboardList} label="Proposals" />
               <NavButton href="/drafts" icon={FileText} label="Drafts" />
               <NavButton href="/setup" icon={Settings} label="Setup" />

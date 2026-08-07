@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   ClipboardList,
   FileText,
+  Mail,
   RefreshCw,
   Save,
   Settings,
@@ -97,6 +98,13 @@ export function SavedProposalsDashboard() {
               >
                 <Bell className="size-4" />
                 <span>Monitor</span>
+              </a>
+              <a
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                href="/notifications"
+              >
+                <Mail className="size-4" />
+                <span>Email</span>
               </a>
               <a
                 className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"

@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
+import { isEmailConfigured } from "@/lib/email-notifications";
 import { isGoogleDocsConfigured } from "@/lib/google-docs";
 import {
   getCompanyProfile,
   isSupabaseConfigured,
+  listEmailSubscribers,
+  listKeywordSubscriptions,
   listMonitorFindings,
   listMonitorRuns,
   listMonitorSearches,
+  listNotificationDeliveries,
   listApprovedResponseBlocks,
   listProposalDrafts,
   listTrackedOpportunities,
@@ -19,6 +23,7 @@ export async function GET() {
   const googleDriveFolderConfigured = Boolean(process.env.GOOGLE_DRIVE_FOLDER_ID);
   const googleReviewerConfigured = Boolean(process.env.GOOGLE_DOC_REVIEWER_EMAIL);
   const cronSecretConfigured = Boolean(process.env.CRON_SECRET);
+  const emailProviderConfigured = isEmailConfigured();
 
   const health = {
     ok: true,
@@ -46,19 +51,29 @@ export async function GET() {
         status: "checking",
         message: "Checking monitoring schema and scheduled run configuration.",
       },
+      emailNotifications: {
+        configured: false,
+        providerConfigured: emailProviderConfigured,
+        schemaReady: false,
+        status: emailProviderConfigured ? "checking" : "missing_env",
+        message: emailProviderConfigured ? "Checking email notification schema." : "Add RESEND_API_KEY in Vercel to send email alerts.",
+      },
     },
     counts: {
       trackedOpportunities: 0,
       proposalDrafts: 0,
       approvedResponseBlocks: 0,
       companyProfile: 0,
+      emailSubscribers: 0,
+      keywordSubscriptions: 0,
+      notificationDeliveries: 0,
     },
     checks: [] as Array<{ name: string; ok: boolean; message: string }>,
     nextSteps: [] as string[],
   };
 
   if (supabaseConfigured) {
-    const [tracked, drafts, blocks, companyProfile, monitorSearches, monitorRuns, monitorFindings] = await Promise.all([
+    const [tracked, drafts, blocks, companyProfile, monitorSearches, monitorRuns, monitorFindings, emailSubscribers, keywordSubscriptions, notificationDeliveries] = await Promise.all([
       listTrackedOpportunities(),
       listProposalDrafts(),
       listApprovedResponseBlocks(),
@@ -66,6 +81,9 @@ export async function GET() {
       listMonitorSearches(),
       listMonitorRuns(),
       listMonitorFindings(1),
+      listEmailSubscribers(),
+      listKeywordSubscriptions(),
+      listNotificationDeliveries(1),
     ]);
 
     health.checks.push(checkResult("Tracked opportunities", tracked));
@@ -75,9 +93,13 @@ export async function GET() {
     health.checks.push(checkResult("Monitor searches", monitorSearches));
     health.checks.push(checkResult("Monitor runs", monitorRuns));
     health.checks.push(checkResult("Monitor findings", monitorFindings));
+    health.checks.push(checkResult("Email subscribers", emailSubscribers));
+    health.checks.push(checkResult("Keyword subscriptions", keywordSubscriptions));
+    health.checks.push(checkResult("Notification deliveries", notificationDeliveries));
 
     const supabaseOk = [tracked, drafts, blocks, companyProfile].every((result) => result.ok);
     const monitorSchemaOk = [monitorSearches, monitorRuns, monitorFindings].every((result) => result.ok);
+    const emailSchemaOk = [emailSubscribers, keywordSubscriptions, notificationDeliveries].every((result) => result.ok);
     health.services.supabase.reachable = supabaseOk;
     health.services.supabase.status = supabaseOk ? "ready" : "error";
     health.services.supabase.message = supabaseOk
@@ -91,11 +113,22 @@ export async function GET() {
         ? "Monitoring schema and cron secret are ready."
         : "Monitoring schema is ready. Add CRON_SECRET in Vercel so scheduled runs can execute."
       : "Run the monitoring SQL migration in Supabase.";
+    health.services.emailNotifications.configured = emailSchemaOk && emailProviderConfigured;
+    health.services.emailNotifications.schemaReady = emailSchemaOk;
+    health.services.emailNotifications.status = emailSchemaOk ? (emailProviderConfigured ? "ready" : "missing_env") : "missing_schema";
+    health.services.emailNotifications.message = emailSchemaOk
+      ? emailProviderConfigured
+        ? "Email notification schema and provider key are ready."
+        : "Email notification schema is ready. Add RESEND_API_KEY in Vercel."
+      : "Run the email notification SQL migration in Supabase.";
 
     health.counts.trackedOpportunities = tracked.ok ? tracked.data.length : 0;
     health.counts.proposalDrafts = drafts.ok ? drafts.data.length : 0;
     health.counts.approvedResponseBlocks = blocks.ok ? blocks.data.length : 0;
     health.counts.companyProfile = companyProfile.ok && companyProfile.data.length > 0 ? 1 : 0;
+    health.counts.emailSubscribers = emailSubscribers.ok ? emailSubscribers.data.length : 0;
+    health.counts.keywordSubscriptions = keywordSubscriptions.ok ? keywordSubscriptions.data.length : 0;
+    health.counts.notificationDeliveries = notificationDeliveries.ok ? notificationDeliveries.data.length : 0;
   }
 
   if (!health.services.supabase.configured) {
@@ -110,6 +143,14 @@ export async function GET() {
 
   if (!health.services.monitoring.cronSecretConfigured) {
     health.nextSteps.push("Add CRON_SECRET in Vercel production environment variables.");
+  }
+
+  if (!health.services.emailNotifications.schemaReady) {
+    health.nextSteps.push("Run docs/supabase-email-notifications-migration.sql in Supabase SQL Editor.");
+  }
+
+  if (!health.services.emailNotifications.providerConfigured) {
+    health.nextSteps.push("Create a Resend API key and add RESEND_API_KEY plus EMAIL_FROM in Vercel.");
   }
 
   if (!health.counts.companyProfile) {

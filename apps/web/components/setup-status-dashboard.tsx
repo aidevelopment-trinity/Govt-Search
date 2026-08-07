@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Bell, CheckCircle2, ClipboardList, FileText, RefreshCw, Search, Settings } from "lucide-react";
+import { AlertTriangle, Bell, CheckCircle2, ClipboardList, FileText, Mail, RefreshCw, Search, Settings } from "lucide-react";
 import { useEffect, useState } from "react";
 
 type HealthResponse = {
@@ -27,12 +27,22 @@ type HealthResponse = {
       status: string;
       message: string;
     };
+    emailNotifications: {
+      configured: boolean;
+      providerConfigured: boolean;
+      schemaReady: boolean;
+      status: string;
+      message: string;
+    };
   };
   counts: {
     trackedOpportunities: number;
     proposalDrafts: number;
     approvedResponseBlocks: number;
     companyProfile: number;
+    emailSubscribers: number;
+    keywordSubscriptions: number;
+    notificationDeliveries: number;
   };
   checks: Array<{ name: string; ok: boolean; message: string }>;
   nextSteps: string[];
@@ -73,6 +83,7 @@ export function SetupStatusDashboard() {
             <div className="flex flex-wrap gap-2">
               <NavButton href="/" icon={Search} label="Search" />
               <NavButton href="/monitor" icon={Bell} label="Monitor" />
+              <NavButton href="/notifications" icon={Mail} label="Email" />
               <NavButton href="/proposals" icon={ClipboardList} label="Proposals" />
               <NavButton href="/drafts" icon={FileText} label="Drafts" />
               <button
@@ -95,7 +106,7 @@ export function SetupStatusDashboard() {
 
         {health && status === "ready" ? (
           <>
-            <div className="grid gap-3 lg:grid-cols-3">
+            <div className="grid gap-3 lg:grid-cols-4">
               <ServiceCard
                 title="Supabase"
                 ok={health.services.supabase.configured && health.services.supabase.reachable}
@@ -111,6 +122,17 @@ export function SetupStatusDashboard() {
                 <div className="mt-3 grid gap-2 text-sm text-slate-600 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
                   <SetupFlag label="Schema" ok={health.services.monitoring.schemaReady} />
                   <SetupFlag label="Cron secret" ok={health.services.monitoring.cronSecretConfigured} />
+                </div>
+              </ServiceCard>
+              <ServiceCard
+                title="Email"
+                ok={health.services.emailNotifications.configured}
+                status={health.services.emailNotifications.status}
+                message={health.services.emailNotifications.message}
+              >
+                <div className="mt-3 grid gap-2 text-sm text-slate-600 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+                  <SetupFlag label="Schema" ok={health.services.emailNotifications.schemaReady} />
+                  <SetupFlag label="Resend" ok={health.services.emailNotifications.providerConfigured} />
                 </div>
               </ServiceCard>
               <ServiceCard
@@ -136,6 +158,9 @@ export function SetupStatusDashboard() {
                 <Metric label="Drafts" value={health.counts.proposalDrafts} />
                 <Metric label="Approved blocks" value={health.counts.approvedResponseBlocks} />
                 <Metric label="Company memory" value={health.counts.companyProfile ? "Ready" : "Empty"} />
+                <Metric label="Email recipients" value={health.counts.emailSubscribers} />
+                <Metric label="Keyword alerts" value={health.counts.keywordSubscriptions} />
+                <Metric label="Email deliveries" value={health.counts.notificationDeliveries} />
               </div>
             </section>
 

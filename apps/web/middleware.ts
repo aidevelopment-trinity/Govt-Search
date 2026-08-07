@@ -6,6 +6,10 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  if (request.nextUrl.pathname === "/api/gov/email-notifications/unsubscribe") {
+    return NextResponse.next();
+  }
+
   const password = process.env.APP_BASIC_AUTH_PASSWORD;
 
   if (!password) {

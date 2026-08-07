@@ -17,6 +17,7 @@ apply. It does not automatically submit bids.
   document links, and an application checklist.
 - Saved proposal tracking through Supabase.
 - Saved Proposals dashboard with pursuit statuses and working notes.
+- Keyword monitoring with optional email alerts through Resend.
 - Optional site-wide password protection through Vercel environment variables.
 
 ## Repository Layout
@@ -43,6 +44,7 @@ Then open `http://localhost:3000`.
 - Vercel: hosts the Next.js app under the dedicated project account/team.
 - Supabase: stores saved searches, source health, users, and opportunities under
   the dedicated project account.
+- Resend: sends optional email alerts for monitored keywords.
 - SAM.gov API key: stored only in `.env.local` locally and Vercel environment
   variables in production.
 - App password: set `APP_BASIC_AUTH_PASSWORD` in Vercel to protect the site.

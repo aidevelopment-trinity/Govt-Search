@@ -15,6 +15,7 @@ import {
   Filter,
   Landmark,
   Link2,
+  Mail,
   RefreshCw,
   Save,
   Search,
@@ -319,6 +320,13 @@ export function GovContractsShell({
               >
                 <Bell className="size-4" />
                 <span>Monitor</span>
+              </a>
+              <a
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                href="/notifications"
+              >
+                <Mail className="size-4" />
+                <span>Email</span>
               </a>
               <a
                 className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
