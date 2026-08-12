@@ -776,6 +776,13 @@ export async function updateEmailSubscriber(input: { id: string; displayName?: s
   });
 }
 
+export async function deleteEmailSubscriber(id: string) {
+  return supabaseRequest<EmailSubscriberRecord[]>("email_subscribers", {
+    method: "DELETE",
+    query: `?id=eq.${encodeURIComponent(id)}&select=id,email,display_name,unsubscribe_token,is_active,created_at,updated_at`,
+  });
+}
+
 export async function listKeywordSubscriptions() {
   return supabaseRequest<KeywordSubscriptionRecord[]>("keyword_subscriptions", {
     query: "?select=id,subscriber_id,saved_search_id,frequency,is_active,last_notified_at,created_at,updated_at&order=created_at.desc&limit=500",

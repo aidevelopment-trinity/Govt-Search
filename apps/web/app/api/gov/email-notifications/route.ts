@@ -3,6 +3,7 @@ import { isEmailConfigured, runDueEmailNotifications, sendTestEmailToSubscriber 
 import { ensureDefaultMonitorSearches } from "@/lib/monitoring";
 import {
   createKeywordSubscription,
+  deleteEmailSubscriber,
   deleteKeywordSubscription,
   listEmailSubscribers,
   listKeywordSubscriptions,
@@ -68,6 +69,15 @@ export async function POST(request: Request) {
       displayName: typeof body.displayName === "string" ? body.displayName : undefined,
       isActive: typeof body.isActive === "boolean" ? body.isActive : undefined,
     });
+    return jsonNoStore(result, { status: result.ok || result.configured === false ? 200 : 502 });
+  }
+
+  if (body.action === "delete-subscriber") {
+    if (typeof body.id !== "string") {
+      return jsonNoStore({ ok: false, error: "Missing subscriber id." }, { status: 400 });
+    }
+
+    const result = await deleteEmailSubscriber(body.id);
     return jsonNoStore(result, { status: result.ok || result.configured === false ? 200 : 502 });
   }
 

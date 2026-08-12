@@ -37,17 +37,18 @@ export function EmailNotificationsDashboard() {
   const [selectedSearchId, setSelectedSearchId] = useState("");
   const [frequency, setFrequency] = useState<NotificationFrequency>("daily");
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [deleteConfirmSubscriberId, setDeleteConfirmSubscriberId] = useState<string | null>(null);
 
   useEffect(() => {
     void loadNotifications();
   }, []);
 
   useEffect(() => {
-    if (!selectedSubscriberId && subscribers[0]) {
+    if ((!selectedSubscriberId || !subscribers.some((subscriber) => subscriber.id === selectedSubscriberId)) && subscribers[0]) {
       setSelectedSubscriberId(subscribers[0].id);
     }
 
-    if (!selectedSearchId && searches[0]) {
+    if ((!selectedSearchId || !searches.some((search) => search.id === selectedSearchId)) && searches[0]) {
       setSelectedSearchId(searches[0].id);
     }
   }, [searches, selectedSearchId, selectedSubscriberId, subscribers]);
@@ -129,6 +130,16 @@ export function EmailNotificationsDashboard() {
 
   async function updateSubscriber(subscriber: EmailSubscriberRecord, isActive: boolean) {
     await postAndReload(`subscriber:${subscriber.id}`, { action: "update-subscriber", id: subscriber.id, isActive });
+  }
+
+  async function deleteSubscriber(subscriber: EmailSubscriberRecord) {
+    if (deleteConfirmSubscriberId !== subscriber.id) {
+      setDeleteConfirmSubscriberId(subscriber.id);
+      return;
+    }
+
+    await postAndReload(`delete-subscriber:${subscriber.id}`, { action: "delete-subscriber", id: subscriber.id });
+    setDeleteConfirmSubscriberId(null);
   }
 
   async function updateSubscription(subscription: KeywordSubscriptionRecord, updates: { isActive?: boolean; frequency?: NotificationFrequency }) {
@@ -261,7 +272,7 @@ export function EmailNotificationsDashboard() {
                   <div className="mt-4 divide-y divide-line rounded-md border border-line">
                     {subscribers.length > 0 ? (
                       subscribers.map((subscriber) => (
-                        <div key={subscriber.id} className="grid gap-3 px-3 py-3 md:grid-cols-[minmax(0,1fr)_190px] md:items-center">
+                        <div key={subscriber.id} className="grid gap-3 px-3 py-3 md:grid-cols-[minmax(0,1fr)_300px] md:items-center">
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
                               {subscriber.is_active ? <CheckCircle2 className="size-4 text-emerald-600" /> : <AlertTriangle className="size-4 text-slate-400" />}
@@ -287,6 +298,17 @@ export function EmailNotificationsDashboard() {
                             >
                               <Mail className="size-4" />
                               <span>{busyAction === `test:${subscriber.id}` ? "Sending" : "Test"}</span>
+                            </button>
+                            <button
+                              className={`inline-flex h-9 items-center justify-center gap-2 rounded-md border px-3 text-sm font-medium disabled:cursor-not-allowed disabled:text-slate-400 ${
+                                deleteConfirmSubscriberId === subscriber.id ? "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100" : "border-line bg-white text-slate-700 hover:bg-slate-50"
+                              }`}
+                              type="button"
+                              disabled={busyAction === `delete-subscriber:${subscriber.id}`}
+                              onClick={() => void deleteSubscriber(subscriber)}
+                            >
+                              <Trash2 className="size-4" />
+                              <span>{deleteConfirmSubscriberId === subscriber.id ? "Confirm" : "Delete"}</span>
                             </button>
                           </div>
                         </div>
