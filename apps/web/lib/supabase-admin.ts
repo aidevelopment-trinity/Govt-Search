@@ -855,6 +855,14 @@ export async function listNotificationDeliveries(limit = 50) {
   });
 }
 
+export async function deleteFailedTestDeliveries() {
+  return supabaseRequest<NotificationDeliveryRecord[]>("notification_deliveries", {
+    method: "DELETE",
+    query:
+      "?delivery_type=eq.test&status=eq.failed&select=id,subscriber_id,saved_search_id,monitor_run_id,delivery_type,status,subject,finding_ids,resend_email_id,error_message,sent_at,created_at,updated_at",
+  });
+}
+
 export async function createNotificationDelivery(input: {
   subscriberId?: string | null;
   savedSearchId?: string | null;

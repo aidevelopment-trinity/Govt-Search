@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { EmailSubscriberRecord, KeywordSubscriptionRecord, NotificationDeliveryRecord, SavedSearchRecord } from "@/lib/supabase-admin";
 
 type NotificationFrequency = "instant" | "daily" | "weekly";
+type DeliveryFilter = "all" | "sent" | "failed";
 
 type NotificationsResponse = {
   ok: boolean;
@@ -38,14 +39,21 @@ export function EmailNotificationsDashboard() {
   const [frequency, setFrequency] = useState<NotificationFrequency>("daily");
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [deleteConfirmSubscriberId, setDeleteConfirmSubscriberId] = useState<string | null>(null);
+  const [showPausedRecipients, setShowPausedRecipients] = useState(false);
+  const [deliveryFilter, setDeliveryFilter] = useState<DeliveryFilter>("all");
 
   useEffect(() => {
     void loadNotifications();
   }, []);
 
   useEffect(() => {
-    if ((!selectedSubscriberId || !subscribers.some((subscriber) => subscriber.id === selectedSubscriberId)) && subscribers[0]) {
-      setSelectedSubscriberId(subscribers[0].id);
+    const activeSubscriber = subscribers.find((subscriber) => subscriber.is_active);
+    if ((!selectedSubscriberId || !subscribers.some((subscriber) => subscriber.id === selectedSubscriberId && subscriber.is_active)) && activeSubscriber) {
+      setSelectedSubscriberId(activeSubscriber.id);
+    }
+
+    if (!activeSubscriber && selectedSubscriberId) {
+      setSelectedSubscriberId("");
     }
 
     if ((!selectedSearchId || !searches.some((search) => search.id === selectedSearchId)) && searches[0]) {
@@ -56,9 +64,16 @@ export function EmailNotificationsDashboard() {
   const subscribersById = useMemo(() => new Map(subscribers.map((subscriber) => [subscriber.id, subscriber])), [subscribers]);
   const searchesById = useMemo(() => new Map(searches.map((search) => [search.id, search])), [searches]);
   const activeSubscribers = subscribers.filter((subscriber) => subscriber.is_active);
+  const pausedSubscribers = subscribers.filter((subscriber) => !subscriber.is_active);
+  const visibleSubscribers = showPausedRecipients ? subscribers : activeSubscribers;
   const activeSubscriptions = subscriptions.filter((subscription) => subscription.is_active);
   const sentDeliveries = deliveries.filter((delivery) => delivery.status === "sent").length;
   const failedDeliveries = deliveries.filter((delivery) => delivery.status === "failed").length;
+  const failedTestDeliveries = deliveries.filter((delivery) => delivery.delivery_type === "test" && delivery.status === "failed");
+  const visibleDeliveries = deliveries.filter((delivery) => deliveryFilter === "all" || delivery.status === deliveryFilter);
+  const normalizedSubscriberEmail = normalizeRecipientEmail(subscriberEmail);
+  const canAddSubscriber = isValidRecipientEmail(normalizedSubscriberEmail);
+  const recipientOptions = activeSubscribers.map((subscriber) => ({ value: subscriber.id, label: subscriber.email }));
 
   async function loadNotifications() {
     setStatus("loading");
@@ -84,13 +99,18 @@ export function EmailNotificationsDashboard() {
   }
 
   async function addSubscriber() {
+    if (!canAddSubscriber) {
+      setMessage("Enter a plain email address like name@company.com.");
+      return;
+    }
+
     setBusyAction("add-subscriber");
     setMessage("");
     try {
       const response = await fetch("/api/gov/email-notifications", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "add-subscriber", email: subscriberEmail, displayName: subscriberName }),
+        body: JSON.stringify({ action: "add-subscriber", email: normalizedSubscriberEmail, displayName: subscriberName }),
       });
       const data = await response.json();
       if (!data.ok) {
@@ -158,6 +178,10 @@ export function EmailNotificationsDashboard() {
     await postAndReload("send-due", { action: "send-due" });
   }
 
+  async function clearFailedTests() {
+    await postAndReload("clear-failed-tests", { action: "delete-failed-test-deliveries" });
+  }
+
   async function postAndReload(actionId: string, body: Record<string, unknown>) {
     setBusyAction(actionId);
     setMessage("");
@@ -222,10 +246,10 @@ export function EmailNotificationsDashboard() {
         {status === "ready" ? (
           <>
             <section className="grid gap-3 md:grid-cols-4">
-              <Metric label="Recipients" value={`${activeSubscribers.length}/${subscribers.length}`} />
-              <Metric label="Keyword alerts" value={`${activeSubscriptions.length}/${subscriptions.length}`} />
+              <Metric label="Active recipients" value={`${activeSubscribers.length}`} detail={pausedSubscribers.length ? `${pausedSubscribers.length} paused` : "None paused"} />
+              <Metric label="Keyword alerts" value={`${activeSubscriptions.length}`} detail={`${subscriptions.length} total`} />
               <Metric label="Email provider" value={emailConfigured ? "Ready" : "Missing"} />
-              <Metric label="Deliveries" value={`${sentDeliveries} sent${failedDeliveries ? ` / ${failedDeliveries} failed` : ""}`} />
+              <Metric label="Deliveries" value={`${sentDeliveries} sent`} detail={failedDeliveries ? `${failedDeliveries} failed` : "No failures"} />
             </section>
 
             {!emailConfigured ? (
@@ -235,19 +259,34 @@ export function EmailNotificationsDashboard() {
             <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_420px]">
               <div className="space-y-4">
                 <section className="rounded-md border border-line bg-white p-4 shadow-panel">
-                  <div className="mb-3 flex items-center gap-2">
-                    <Mail className="size-4 text-slate-500" />
-                    <h2 className="text-base font-semibold">Recipients</h2>
+                  <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-2">
+                      <Mail className="size-4 text-slate-500" />
+                      <h2 className="text-base font-semibold">Recipients</h2>
+                      <span className="rounded-md border border-line bg-slate-50 px-2 py-0.5 text-xs text-slate-500">{activeSubscribers.length} active</span>
+                    </div>
+                    {pausedSubscribers.length > 0 ? (
+                      <button
+                        className="inline-flex h-8 items-center justify-center rounded-md border border-line bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                        type="button"
+                        onClick={() => setShowPausedRecipients((current) => !current)}
+                      >
+                        {showPausedRecipients ? "Hide paused" : `Show paused (${pausedSubscribers.length})`}
+                      </button>
+                    ) : null}
                   </div>
                   <div className="grid gap-2 md:grid-cols-[minmax(190px,1fr)_minmax(160px,240px)_110px] md:items-end">
                     <label className="block">
                       <span className="block text-xs font-medium text-slate-500">Email</span>
                       <input
-                        className="mt-1 h-10 w-full rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-signal"
+                        className={`mt-1 h-10 w-full rounded-md border bg-white px-3 text-sm outline-none focus:border-signal ${
+                          subscriberEmail.trim() && !canAddSubscriber ? "border-rose-300 text-rose-900" : "border-line"
+                        }`}
                         value={subscriberEmail}
                         onChange={(event) => setSubscriberEmail(event.target.value)}
                         placeholder="name@company.com"
                       />
+                      {subscriberEmail.trim() && !canAddSubscriber ? <span className="mt-1 block text-xs text-rose-700">Use a plain email address. No extra punctuation.</span> : null}
                     </label>
                     <label className="block">
                       <span className="block text-xs font-medium text-slate-500">Name</span>
@@ -261,7 +300,7 @@ export function EmailNotificationsDashboard() {
                     <button
                       className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-ink px-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
                       type="button"
-                      disabled={busyAction === "add-subscriber" || !subscriberEmail.trim()}
+                      disabled={busyAction === "add-subscriber" || !canAddSubscriber}
                       onClick={() => void addSubscriber()}
                     >
                       <Plus className="size-4" />
@@ -270,13 +309,14 @@ export function EmailNotificationsDashboard() {
                   </div>
 
                   <div className="mt-4 divide-y divide-line rounded-md border border-line">
-                    {subscribers.length > 0 ? (
-                      subscribers.map((subscriber) => (
+                    {visibleSubscribers.length > 0 ? (
+                      visibleSubscribers.map((subscriber) => (
                         <div key={subscriber.id} className="grid gap-3 px-3 py-3 md:grid-cols-[minmax(0,1fr)_300px] md:items-center">
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
                               {subscriber.is_active ? <CheckCircle2 className="size-4 text-emerald-600" /> : <AlertTriangle className="size-4 text-slate-400" />}
                               <h3 className="truncate text-sm font-semibold">{subscriber.display_name || subscriber.email}</h3>
+                              <RecipientStatusPill active={subscriber.is_active} />
                               {subscriber.display_name ? <span className="text-xs text-slate-500">{subscriber.email}</span> : null}
                             </div>
                             <p className="mt-1 text-xs text-slate-500">Added {formatDateTime(subscriber.created_at)}</p>
@@ -314,7 +354,7 @@ export function EmailNotificationsDashboard() {
                         </div>
                       ))
                     ) : (
-                      <p className="px-3 py-4 text-sm text-slate-600">No recipients yet.</p>
+                      <p className="px-3 py-4 text-sm text-slate-600">{subscribers.length > 0 ? "Paused recipients are hidden." : "No recipients yet."}</p>
                     )}
                   </div>
                 </section>
@@ -325,13 +365,13 @@ export function EmailNotificationsDashboard() {
                     <h2 className="text-base font-semibold">Keyword Alerts</h2>
                   </div>
                   <div className="grid gap-2 lg:grid-cols-[minmax(160px,1fr)_minmax(180px,1fr)_140px_110px] lg:items-end">
-                    <Select label="Recipient" value={selectedSubscriberId} options={subscribers.map((subscriber) => ({ value: subscriber.id, label: subscriber.email }))} onChange={setSelectedSubscriberId} />
+                    <Select label="Recipient" value={selectedSubscriberId} options={recipientOptions} onChange={setSelectedSubscriberId} />
                     <Select label="Keyword" value={selectedSearchId} options={searches.map((search) => ({ value: search.id, label: `${search.query} (${search.state_filter})` }))} onChange={setSelectedSearchId} />
                     <Select label="Frequency" value={frequency} options={frequencyOptions} onChange={(value) => setFrequency(value as NotificationFrequency)} />
                     <button
                       className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-ink px-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
                       type="button"
-                      disabled={busyAction === "add-subscription" || !selectedSubscriberId || !selectedSearchId}
+                      disabled={busyAction === "add-subscription" || !selectedSubscriberId || !selectedSearchId || activeSubscribers.length === 0}
                       onClick={() => void addSubscription()}
                     >
                       <Plus className="size-4" />
@@ -343,7 +383,7 @@ export function EmailNotificationsDashboard() {
                     <button
                       className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
                       type="button"
-                      disabled={!emailConfigured || busyAction === "send-due"}
+                      disabled={!emailConfigured || activeSubscriptions.length === 0 || busyAction === "send-due"}
                       onClick={() => void sendDue()}
                     >
                       <Play className="size-4" />
@@ -404,10 +444,31 @@ export function EmailNotificationsDashboard() {
               </div>
 
               <aside className="rounded-md border border-line bg-white p-4 shadow-panel">
-                <h2 className="text-base font-semibold">Recent Deliveries</h2>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between xl:flex-col xl:items-stretch">
+                  <div>
+                    <h2 className="text-base font-semibold">Recent Deliveries</h2>
+                    <p className="mt-1 text-xs text-slate-500">{visibleDeliveries.length} shown</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <DeliveryFilterButton active={deliveryFilter === "all"} label="All" onClick={() => setDeliveryFilter("all")} />
+                    <DeliveryFilterButton active={deliveryFilter === "sent"} label="Sent" onClick={() => setDeliveryFilter("sent")} />
+                    <DeliveryFilterButton active={deliveryFilter === "failed"} label="Failed" onClick={() => setDeliveryFilter("failed")} />
+                  </div>
+                  {failedTestDeliveries.length > 0 ? (
+                    <button
+                      className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-rose-200 bg-rose-50 px-3 text-sm font-medium text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:text-rose-300"
+                      type="button"
+                      disabled={busyAction === "clear-failed-tests"}
+                      onClick={() => void clearFailedTests()}
+                    >
+                      <Trash2 className="size-4" />
+                      <span>Clear Failed Tests</span>
+                    </button>
+                  ) : null}
+                </div>
                 <div className="mt-3 space-y-2">
-                  {deliveries.length > 0 ? (
-                    deliveries.slice(0, 20).map((delivery) => (
+                  {visibleDeliveries.length > 0 ? (
+                    visibleDeliveries.slice(0, 20).map((delivery) => (
                       <div key={delivery.id} className="rounded-md border border-line bg-slate-50 px-3 py-2">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
@@ -422,7 +483,7 @@ export function EmailNotificationsDashboard() {
                       </div>
                     ))
                   ) : (
-                    <p className="rounded-md border border-line bg-slate-50 px-3 py-2 text-sm text-slate-600">No deliveries yet.</p>
+                    <p className="rounded-md border border-line bg-slate-50 px-3 py-2 text-sm text-slate-600">No deliveries in this view.</p>
                   )}
                 </div>
               </aside>
@@ -472,12 +533,35 @@ function Select({
   );
 }
 
-function Metric({ label, value }: { label: string; value: number | string }) {
+function Metric({ label, value, detail }: { label: string; value: number | string; detail?: string }) {
   return (
     <div className="rounded-md border border-line bg-white px-3 py-2 shadow-panel">
       <p className="text-xs font-medium text-slate-500">{label}</p>
       <p className="text-lg font-semibold">{value}</p>
+      {detail ? <p className="mt-0.5 text-xs text-slate-500">{detail}</p> : null}
     </div>
+  );
+}
+
+function RecipientStatusPill({ active }: { active: boolean }) {
+  return (
+    <span className={`rounded-md border px-2 py-0.5 text-xs font-semibold ${active ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-500"}`}>
+      {active ? "active" : "paused"}
+    </span>
+  );
+}
+
+function DeliveryFilterButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
+  return (
+    <button
+      className={`inline-flex h-8 items-center justify-center rounded-md border px-2.5 text-xs font-semibold ${
+        active ? "border-ink bg-ink text-white" : "border-line bg-white text-slate-700 hover:bg-slate-50"
+      }`}
+      type="button"
+      onClick={onClick}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -499,6 +583,18 @@ function StatePanel({ title, message, loading = false, tone = "default" }: { tit
       <p className="mx-auto mt-1 max-w-xl text-sm opacity-80">{message}</p>
     </div>
   );
+}
+
+function normalizeRecipientEmail(value: string) {
+  return value.trim().replace(/^mailto:/i, "").toLowerCase();
+}
+
+function isValidRecipientEmail(value: string) {
+  if (value.length > 254) {
+    return false;
+  }
+
+  return /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i.test(value);
 }
 
 function formatDateTime(value: string) {

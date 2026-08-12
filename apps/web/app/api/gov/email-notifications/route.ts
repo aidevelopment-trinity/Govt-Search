@@ -4,6 +4,7 @@ import { ensureDefaultMonitorSearches } from "@/lib/monitoring";
 import {
   createKeywordSubscription,
   deleteEmailSubscriber,
+  deleteFailedTestDeliveries,
   deleteKeywordSubscription,
   listEmailSubscribers,
   listKeywordSubscriptions,
@@ -46,9 +47,9 @@ export async function POST(request: Request) {
   }
 
   if (body.action === "add-subscriber") {
-    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+    const email = typeof body.email === "string" ? normalizeEmail(body.email) : "";
     if (!isValidEmail(email)) {
-      return jsonNoStore({ ok: false, error: "Enter a valid email address." }, { status: 400 });
+      return jsonNoStore({ ok: false, error: "Enter a plain email address like name@company.com." }, { status: 400 });
     }
 
     const result = await upsertEmailSubscriber({
@@ -117,6 +118,11 @@ export async function POST(request: Request) {
     return jsonNoStore(result, { status: result.ok || result.configured === false ? 200 : 502 });
   }
 
+  if (body.action === "delete-failed-test-deliveries") {
+    const result = await deleteFailedTestDeliveries();
+    return jsonNoStore(result, { status: result.ok || result.configured === false ? 200 : 502 });
+  }
+
   if (body.action === "send-due") {
     const result = await runDueEmailNotifications({ force: true, limitSubscriptions: 50 });
     return jsonNoStore(result, { status: result.ok || result.configured === false ? 200 : 502 });
@@ -138,8 +144,16 @@ function isNotificationFrequency(value: unknown): value is "instant" | "daily" |
   return value === "instant" || value === "daily" || value === "weekly";
 }
 
+function normalizeEmail(value: string) {
+  return value.trim().replace(/^mailto:/i, "").toLowerCase();
+}
+
 function isValidEmail(value: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+  if (value.length > 254) {
+    return false;
+  }
+
+  return /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i.test(value);
 }
 
 function jsonNoStore(body: unknown, init: ResponseInit = {}) {
