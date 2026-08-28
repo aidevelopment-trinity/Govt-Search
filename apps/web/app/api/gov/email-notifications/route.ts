@@ -12,6 +12,7 @@ import {
   updateEmailSubscriber,
   updateKeywordSubscription,
   upsertEmailSubscriber,
+  upsertMonitorSearch,
 } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
@@ -83,13 +84,42 @@ export async function POST(request: Request) {
   }
 
   if (body.action === "add-subscription") {
-    if (typeof body.subscriberId !== "string" || typeof body.savedSearchId !== "string") {
-      return jsonNoStore({ ok: false, error: "Choose a recipient and a keyword." }, { status: 400 });
+    if (typeof body.subscriberId !== "string") {
+      return jsonNoStore({ ok: false, error: "Choose a recipient." }, { status: 400 });
+    }
+
+    let savedSearchId = typeof body.savedSearchId === "string" ? body.savedSearchId : "";
+    const customQuery = typeof body.customQuery === "string" ? normalizeKeyword(body.customQuery) : "";
+    if (customQuery) {
+      if (customQuery.length < 3) {
+        return jsonNoStore({ ok: false, error: "Custom keyword must be at least 3 characters." }, { status: 400 });
+      }
+
+      const monitorSearch = await upsertMonitorSearch({
+        query: customQuery,
+        state: normalizeSearchFilter(body.state, "All"),
+        level: normalizeSearchFilter(body.level, "All"),
+        frequency: "daily",
+        enabled: true,
+      });
+
+      if (!monitorSearch.ok) {
+        return jsonNoStore(monitorSearch, { status: monitorSearch.configured === false ? 200 : 502 });
+      }
+
+      savedSearchId = monitorSearch.data[0]?.id ?? "";
+      if (!savedSearchId) {
+        return jsonNoStore({ ok: false, configured: true, error: "Custom keyword could not be created." }, { status: 502 });
+      }
+    }
+
+    if (!savedSearchId) {
+      return jsonNoStore({ ok: false, error: "Choose a saved keyword or enter a custom keyword." }, { status: 400 });
     }
 
     const result = await createKeywordSubscription({
       subscriberId: body.subscriberId,
-      savedSearchId: body.savedSearchId,
+      savedSearchId,
       frequency: isNotificationFrequency(body.frequency) ? body.frequency : "daily",
       active: true,
     });
@@ -146,6 +176,14 @@ function isNotificationFrequency(value: unknown): value is "instant" | "daily" |
 
 function normalizeEmail(value: string) {
   return value.trim().replace(/^mailto:/i, "").toLowerCase();
+}
+
+function normalizeKeyword(value: string) {
+  return value.replace(/\s+/g, " ").trim().slice(0, 120);
+}
+
+function normalizeSearchFilter(value: unknown, fallback: string) {
+  return typeof value === "string" && value.trim() ? value.trim().slice(0, 40) : fallback;
 }
 
 function isValidEmail(value: string) {

@@ -6,6 +6,7 @@ import type { EmailSubscriberRecord, KeywordSubscriptionRecord, NotificationDeli
 
 type NotificationFrequency = "instant" | "daily" | "weekly";
 type DeliveryFilter = "all" | "sent" | "failed";
+type AlertKeywordMode = "saved" | "custom";
 
 type NotificationsResponse = {
   ok: boolean;
@@ -23,6 +24,8 @@ const frequencyOptions: Array<{ value: NotificationFrequency; label: string }> =
   { value: "weekly", label: "Weekly" },
   { value: "instant", label: "Near-real-time" },
 ];
+const stateOptions = ["All", "TX", "CO", "FL", "TN", "NC", "GA", "US"].map((value) => ({ value, label: value }));
+const levelOptions = ["All", "Federal", "State", "Local", "Adjacent", "Education"].map((value) => ({ value, label: value }));
 
 export function EmailNotificationsDashboard() {
   const [subscribers, setSubscribers] = useState<EmailSubscriberRecord[]>([]);
@@ -42,6 +45,10 @@ export function EmailNotificationsDashboard() {
   const [showPausedRecipients, setShowPausedRecipients] = useState(false);
   const [deliveryFilter, setDeliveryFilter] = useState<DeliveryFilter>("all");
   const [selectedDashboardSubscriberId, setSelectedDashboardSubscriberId] = useState("");
+  const [alertKeywordMode, setAlertKeywordMode] = useState<AlertKeywordMode>("saved");
+  const [customKeyword, setCustomKeyword] = useState("");
+  const [customState, setCustomState] = useState("All");
+  const [customLevel, setCustomLevel] = useState("All");
 
   useEffect(() => {
     void loadNotifications();
@@ -84,6 +91,8 @@ export function EmailNotificationsDashboard() {
   const normalizedSubscriberEmail = normalizeRecipientEmail(subscriberEmail);
   const canAddSubscriber = isValidRecipientEmail(normalizedSubscriberEmail);
   const recipientOptions = activeSubscribers.map((subscriber) => ({ value: subscriber.id, label: subscriber.email }));
+  const normalizedCustomKeyword = normalizeKeyword(customKeyword);
+  const canCreateAlert = activeSubscribers.length > 0 && Boolean(selectedSubscriberId) && (alertKeywordMode === "saved" ? Boolean(selectedSearchId) : normalizedCustomKeyword.length >= 3);
 
   async function loadNotifications() {
     setStatus("loading");
@@ -141,16 +150,30 @@ export function EmailNotificationsDashboard() {
     setBusyAction("add-subscription");
     setMessage("");
     try {
+      const body =
+        alertKeywordMode === "custom"
+          ? {
+              action: "add-subscription",
+              subscriberId: selectedSubscriberId,
+              customQuery: normalizedCustomKeyword,
+              state: customState,
+              level: customLevel,
+              frequency,
+            }
+          : { action: "add-subscription", subscriberId: selectedSubscriberId, savedSearchId: selectedSearchId, frequency };
       const response = await fetch("/api/gov/email-notifications", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "add-subscription", subscriberId: selectedSubscriberId, savedSearchId: selectedSearchId, frequency }),
+        body: JSON.stringify(body),
       });
       const data = await response.json();
       if (!data.ok) {
         setMessage(data.error || "Keyword subscription could not be saved.");
       } else {
         setSelectedDashboardSubscriberId(selectedSubscriberId);
+        if (alertKeywordMode === "custom") {
+          setCustomKeyword("");
+        }
       }
       await loadNotifications();
     } catch {
@@ -373,27 +396,49 @@ export function EmailNotificationsDashboard() {
 
                 <section className="rounded-md border border-line bg-white p-4 shadow-panel">
                   <div className="mb-3 flex flex-col gap-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Bell className="size-4 text-slate-500" />
-                      <h2 className="text-base font-semibold">Keyword Alerts</h2>
-                      <span className="rounded-md border border-line bg-slate-50 px-2 py-0.5 text-xs text-slate-500">New alert setup</span>
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Bell className="size-4 text-slate-500" />
+                        <h2 className="text-base font-semibold">Keyword Alerts</h2>
+                        <span className="rounded-md border border-line bg-slate-50 px-2 py-0.5 text-xs text-slate-500">New alert setup</span>
+                      </div>
+                      <div className="inline-flex rounded-md border border-line bg-slate-50 p-1">
+                        <AlertModeButton active={alertKeywordMode === "saved"} label="Saved keyword" onClick={() => setAlertKeywordMode("saved")} />
+                        <AlertModeButton active={alertKeywordMode === "custom"} label="Custom keyword" onClick={() => setAlertKeywordMode("custom")} />
+                      </div>
                     </div>
-                    <p className="text-xs text-slate-500">Choose a recipient, keyword, and frequency, then create the alert.</p>
+                    <p className="text-xs text-slate-500">
+                      {alertKeywordMode === "custom" ? "Type a new keyword and the system will save it for monitoring." : "Choose an existing saved keyword, then create the alert."}
+                    </p>
                   </div>
-                  <div className="grid gap-2 lg:grid-cols-[minmax(160px,1fr)_minmax(180px,1fr)_140px_150px] lg:items-end">
-                    <Select label="Recipient" value={selectedSubscriberId} options={recipientOptions} onChange={setSelectedSubscriberId} />
-                    <Select label="Keyword" value={selectedSearchId} options={searches.map((search) => ({ value: search.id, label: `${search.query} (${search.state_filter})` }))} onChange={setSelectedSearchId} />
-                    <Select label="Frequency" value={frequency} options={frequencyOptions} onChange={(value) => setFrequency(value as NotificationFrequency)} />
-                    <button
-                      className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-ink px-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-                      type="button"
-                      disabled={busyAction === "add-subscription" || !selectedSubscriberId || !selectedSearchId || activeSubscribers.length === 0}
-                      onClick={() => void addSubscription()}
-                    >
-                      <Plus className="size-4" />
-                      <span>Create Alert</span>
-                    </button>
-                  </div>
+                  {alertKeywordMode === "custom" ? (
+                    <div className="grid gap-2 xl:grid-cols-[minmax(160px,1fr)_minmax(220px,1.25fr)_90px_110px_140px_150px] xl:items-end">
+                      <Select label="Recipient" value={selectedSubscriberId} options={recipientOptions} onChange={setSelectedSubscriberId} />
+                      <label className="block">
+                        <span className="block text-xs font-medium text-slate-500">Custom keyword</span>
+                        <input
+                          className={`mt-1 h-10 w-full rounded-md border bg-white px-3 text-sm outline-none focus:border-signal ${
+                            customKeyword.trim() && normalizedCustomKeyword.length < 3 ? "border-rose-300 text-rose-900" : "border-line"
+                          }`}
+                          value={customKeyword}
+                          onChange={(event) => setCustomKeyword(event.target.value)}
+                          placeholder="executive coaching"
+                        />
+                        {customKeyword.trim() && normalizedCustomKeyword.length < 3 ? <span className="mt-1 block text-xs text-rose-700">Use at least 3 characters.</span> : null}
+                      </label>
+                      <Select label="State" value={customState} options={stateOptions} onChange={setCustomState} />
+                      <Select label="Level" value={customLevel} options={levelOptions} onChange={setCustomLevel} />
+                      <Select label="Frequency" value={frequency} options={frequencyOptions} onChange={(value) => setFrequency(value as NotificationFrequency)} />
+                      <CreateAlertButton busy={busyAction === "add-subscription"} disabled={!canCreateAlert} onClick={() => void addSubscription()} />
+                    </div>
+                  ) : (
+                    <div className="grid gap-2 lg:grid-cols-[minmax(160px,1fr)_minmax(180px,1fr)_140px_150px] lg:items-end">
+                      <Select label="Recipient" value={selectedSubscriberId} options={recipientOptions} onChange={setSelectedSubscriberId} />
+                      <Select label="Saved keyword" value={selectedSearchId} options={searches.map((search) => ({ value: search.id, label: `${search.query} (${search.state_filter})` }))} onChange={setSelectedSearchId} />
+                      <Select label="Frequency" value={frequency} options={frequencyOptions} onChange={(value) => setFrequency(value as NotificationFrequency)} />
+                      <CreateAlertButton busy={busyAction === "add-subscription"} disabled={!canCreateAlert} onClick={() => void addSubscription()} />
+                    </div>
+                  )}
 
                   <div className="mt-4 flex flex-wrap gap-2">
                     <button
@@ -407,6 +452,10 @@ export function EmailNotificationsDashboard() {
                     </button>
                   </div>
 
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold">Created Alerts</h3>
+                    <span className="rounded-md border border-line bg-slate-50 px-2 py-0.5 text-xs text-slate-500">{subscriptions.length} total</span>
+                  </div>
                   <div className="mt-4 divide-y divide-line rounded-md border border-line">
                     {subscriptions.length > 0 ? (
                       subscriptions.map((subscription) => {
@@ -568,6 +617,34 @@ function Metric({ label, value, detail }: { label: string; value: number | strin
   );
 }
 
+function AlertModeButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
+  return (
+    <button
+      className={`inline-flex h-8 items-center justify-center rounded px-2.5 text-xs font-semibold ${
+        active ? "bg-ink text-white shadow-sm" : "text-slate-600 hover:bg-white"
+      }`}
+      type="button"
+      onClick={onClick}
+    >
+      {label}
+    </button>
+  );
+}
+
+function CreateAlertButton({ busy, disabled, onClick }: { busy: boolean; disabled: boolean; onClick: () => void }) {
+  return (
+    <button
+      className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-ink px-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+      type="button"
+      disabled={busy || disabled}
+      onClick={onClick}
+    >
+      <Plus className="size-4" />
+      <span>{busy ? "Creating" : "Create Alert"}</span>
+    </button>
+  );
+}
+
 function RecipientAlertDashboard({
   subscribers,
   subscriptions,
@@ -707,6 +784,10 @@ function StatePanel({ title, message, loading = false, tone = "default" }: { tit
 
 function normalizeRecipientEmail(value: string) {
   return value.trim().replace(/^mailto:/i, "").toLowerCase();
+}
+
+function normalizeKeyword(value: string) {
+  return value.replace(/\s+/g, " ").trim().slice(0, 120);
 }
 
 function isValidRecipientEmail(value: string) {
