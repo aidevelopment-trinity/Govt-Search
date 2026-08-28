@@ -412,7 +412,7 @@ export function EmailNotificationsDashboard() {
                     </p>
                   </div>
                   {alertKeywordMode === "custom" ? (
-                    <div className="grid gap-2 xl:grid-cols-[minmax(160px,1fr)_minmax(220px,1.25fr)_90px_110px_140px_150px] xl:items-end">
+                    <div className="grid gap-2 md:grid-cols-2 2xl:grid-cols-[minmax(160px,1fr)_minmax(220px,1.2fr)_140px] 2xl:items-end">
                       <Select label="Recipient" value={selectedSubscriberId} options={recipientOptions} onChange={setSelectedSubscriberId} />
                       <label className="block">
                         <span className="block text-xs font-medium text-slate-500">Custom keyword</span>
@@ -432,7 +432,7 @@ export function EmailNotificationsDashboard() {
                       <CreateAlertButton busy={busyAction === "add-subscription"} disabled={!canCreateAlert} onClick={() => void addSubscription()} />
                     </div>
                   ) : (
-                    <div className="grid gap-2 lg:grid-cols-[minmax(160px,1fr)_minmax(180px,1fr)_140px_150px] lg:items-end">
+                    <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[minmax(160px,1fr)_minmax(180px,1fr)_140px_150px] xl:items-end">
                       <Select label="Recipient" value={selectedSubscriberId} options={recipientOptions} onChange={setSelectedSubscriberId} />
                       <Select label="Saved keyword" value={selectedSearchId} options={searches.map((search) => ({ value: search.id, label: `${search.query} (${search.state_filter})` }))} onChange={setSelectedSearchId} />
                       <Select label="Frequency" value={frequency} options={frequencyOptions} onChange={(value) => setFrequency(value as NotificationFrequency)} />
@@ -634,7 +634,7 @@ function AlertModeButton({ active, label, onClick }: { active: boolean; label: s
 function CreateAlertButton({ busy, disabled, onClick }: { busy: boolean; disabled: boolean; onClick: () => void }) {
   return (
     <button
-      className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-ink px-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+      className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-ink px-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
       type="button"
       disabled={busy || disabled}
       onClick={onClick}
