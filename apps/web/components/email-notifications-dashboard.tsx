@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Bell, CheckCircle2, ClipboardList, FileText, Mail, Play, Plus, RefreshCw, Search, Settings, Trash2 } from "lucide-react";
+import { AlertTriangle, Bell, CheckCircle2, ClipboardList, FileText, Mail, Pencil, Play, Plus, RefreshCw, Search, Settings, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { EmailSubscriberRecord, KeywordSubscriptionRecord, NotificationDeliveryRecord, SavedSearchRecord } from "@/lib/supabase-admin";
 
@@ -42,6 +42,9 @@ export function EmailNotificationsDashboard() {
   const [frequency, setFrequency] = useState<NotificationFrequency>("daily");
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [deleteConfirmSubscriberId, setDeleteConfirmSubscriberId] = useState<string | null>(null);
+  const [editingSubscriberId, setEditingSubscriberId] = useState("");
+  const [editSubscriberEmail, setEditSubscriberEmail] = useState("");
+  const [editSubscriberName, setEditSubscriberName] = useState("");
   const [showPausedRecipients, setShowPausedRecipients] = useState(false);
   const [deliveryFilter, setDeliveryFilter] = useState<DeliveryFilter>("all");
   const [selectedDashboardSubscriberId, setSelectedDashboardSubscriberId] = useState("");
@@ -73,10 +76,16 @@ export function EmailNotificationsDashboard() {
       setSelectedDashboardSubscriberId("");
     }
 
+    if (editingSubscriberId && !subscribers.some((subscriber) => subscriber.id === editingSubscriberId)) {
+      setEditingSubscriberId("");
+      setEditSubscriberEmail("");
+      setEditSubscriberName("");
+    }
+
     if ((!selectedSearchId || !searches.some((search) => search.id === selectedSearchId)) && searches[0]) {
       setSelectedSearchId(searches[0].id);
     }
-  }, [searches, selectedDashboardSubscriberId, selectedSearchId, selectedSubscriberId, subscribers]);
+  }, [editingSubscriberId, searches, selectedDashboardSubscriberId, selectedSearchId, selectedSubscriberId, subscribers]);
 
   const subscribersById = useMemo(() => new Map(subscribers.map((subscriber) => [subscriber.id, subscriber])), [subscribers]);
   const searchesById = useMemo(() => new Map(searches.map((search) => [search.id, search])), [searches]);
@@ -93,6 +102,8 @@ export function EmailNotificationsDashboard() {
   const recipientOptions = activeSubscribers.map((subscriber) => ({ value: subscriber.id, label: subscriber.email }));
   const normalizedCustomKeyword = normalizeKeyword(customKeyword);
   const canCreateAlert = activeSubscribers.length > 0 && Boolean(selectedSubscriberId) && (alertKeywordMode === "saved" ? Boolean(selectedSearchId) : normalizedCustomKeyword.length >= 3);
+  const normalizedEditSubscriberEmail = normalizeRecipientEmail(editSubscriberEmail);
+  const canSaveSubscriberEdit = Boolean(editingSubscriberId) && isValidRecipientEmail(normalizedEditSubscriberEmail);
 
   async function loadNotifications() {
     setStatus("loading");
@@ -187,8 +198,37 @@ export function EmailNotificationsDashboard() {
     await postAndReload(`subscriber:${subscriber.id}`, { action: "update-subscriber", id: subscriber.id, isActive });
   }
 
+  function startEditSubscriber(subscriber: EmailSubscriberRecord) {
+    setDeleteConfirmSubscriberId(null);
+    setEditingSubscriberId(subscriber.id);
+    setEditSubscriberEmail(subscriber.email);
+    setEditSubscriberName(subscriber.display_name ?? "");
+  }
+
+  function cancelEditSubscriber() {
+    setEditingSubscriberId("");
+    setEditSubscriberEmail("");
+    setEditSubscriberName("");
+  }
+
+  async function saveSubscriberEdit(subscriber: EmailSubscriberRecord) {
+    if (!canSaveSubscriberEdit) {
+      setMessage("Enter a plain email address like name@company.com.");
+      return;
+    }
+
+    await postAndReload(`edit-subscriber:${subscriber.id}`, {
+      action: "update-subscriber",
+      id: subscriber.id,
+      email: normalizedEditSubscriberEmail,
+      displayName: editSubscriberName,
+    });
+    cancelEditSubscriber();
+  }
+
   async function deleteSubscriber(subscriber: EmailSubscriberRecord) {
     if (deleteConfirmSubscriberId !== subscriber.id) {
+      setEditingSubscriberId("");
       setDeleteConfirmSubscriberId(subscriber.id);
       return;
     }
@@ -345,49 +385,112 @@ export function EmailNotificationsDashboard() {
 
                   <div className="mt-4 divide-y divide-line rounded-md border border-line">
                     {visibleSubscribers.length > 0 ? (
-                      visibleSubscribers.map((subscriber) => (
-                        <div key={subscriber.id} className="grid gap-3 px-3 py-3 md:grid-cols-[minmax(0,1fr)_300px] md:items-center">
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              {subscriber.is_active ? <CheckCircle2 className="size-4 text-emerald-600" /> : <AlertTriangle className="size-4 text-slate-400" />}
-                              <h3 className="truncate text-sm font-semibold">{subscriber.display_name || subscriber.email}</h3>
-                              <RecipientStatusPill active={subscriber.is_active} />
-                              {subscriber.display_name ? <span className="text-xs text-slate-500">{subscriber.email}</span> : null}
+                      visibleSubscribers.map((subscriber) => {
+                        const isEditing = editingSubscriberId === subscriber.id;
+                        return (
+                          <div key={subscriber.id} className="grid gap-3 px-3 py-3 md:grid-cols-[minmax(0,1fr)_390px] md:items-center">
+                            <div className="min-w-0">
+                              {isEditing ? (
+                                <div className="grid gap-2 sm:grid-cols-2">
+                                  <label className="block">
+                                    <span className="block text-xs font-medium text-slate-500">Email</span>
+                                    <input
+                                      className={`mt-1 h-9 w-full rounded-md border bg-white px-3 text-sm outline-none focus:border-signal ${
+                                        editSubscriberEmail.trim() && !canSaveSubscriberEdit ? "border-rose-300 text-rose-900" : "border-line"
+                                      }`}
+                                      value={editSubscriberEmail}
+                                      onChange={(event) => setEditSubscriberEmail(event.target.value)}
+                                      placeholder="name@company.com"
+                                    />
+                                    {editSubscriberEmail.trim() && !canSaveSubscriberEdit ? <span className="mt-1 block text-xs text-rose-700">Use a plain email address.</span> : null}
+                                  </label>
+                                  <label className="block">
+                                    <span className="block text-xs font-medium text-slate-500">Name</span>
+                                    <input
+                                      className="mt-1 h-9 w-full rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-signal"
+                                      value={editSubscriberName}
+                                      onChange={(event) => setEditSubscriberName(event.target.value)}
+                                      placeholder="Optional"
+                                    />
+                                  </label>
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    {subscriber.is_active ? <CheckCircle2 className="size-4 text-emerald-600" /> : <AlertTriangle className="size-4 text-slate-400" />}
+                                    <h3 className="truncate text-sm font-semibold">{subscriber.display_name || subscriber.email}</h3>
+                                    <RecipientStatusPill active={subscriber.is_active} />
+                                    {subscriber.display_name ? <span className="text-xs text-slate-500">{subscriber.email}</span> : null}
+                                  </div>
+                                  <p className="mt-1 text-xs text-slate-500">Added {formatDateTime(subscriber.created_at)}</p>
+                                </>
+                              )}
                             </div>
-                            <p className="mt-1 text-xs text-slate-500">Added {formatDateTime(subscriber.created_at)}</p>
+                            <div className="flex flex-wrap gap-2 md:justify-end">
+                              {isEditing ? (
+                                <>
+                                  <button
+                                    className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-ink px-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                                    type="button"
+                                    disabled={busyAction === `edit-subscriber:${subscriber.id}` || !canSaveSubscriberEdit}
+                                    onClick={() => void saveSubscriberEdit(subscriber)}
+                                  >
+                                    <CheckCircle2 className="size-4" />
+                                    <span>{busyAction === `edit-subscriber:${subscriber.id}` ? "Saving" : "Save"}</span>
+                                  </button>
+                                  <button
+                                    className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                                    type="button"
+                                    onClick={cancelEditSubscriber}
+                                  >
+                                    <X className="size-4" />
+                                    <span>Cancel</span>
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                                    type="button"
+                                    onClick={() => startEditSubscriber(subscriber)}
+                                  >
+                                    <Pencil className="size-4" />
+                                    <span>Edit</span>
+                                  </button>
+                                  <button
+                                    className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+                                    type="button"
+                                    disabled={busyAction === `subscriber:${subscriber.id}`}
+                                    onClick={() => void updateSubscriber(subscriber, !subscriber.is_active)}
+                                  >
+                                    {subscriber.is_active ? "Pause" : "Enable"}
+                                  </button>
+                                  <button
+                                    className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+                                    type="button"
+                                    disabled={!emailConfigured || busyAction === `test:${subscriber.id}`}
+                                    onClick={() => void sendTest(subscriber)}
+                                  >
+                                    <Mail className="size-4" />
+                                    <span>{busyAction === `test:${subscriber.id}` ? "Sending" : "Test"}</span>
+                                  </button>
+                                  <button
+                                    className={`inline-flex h-9 items-center justify-center gap-2 rounded-md border px-3 text-sm font-medium disabled:cursor-not-allowed disabled:text-slate-400 ${
+                                      deleteConfirmSubscriberId === subscriber.id ? "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100" : "border-line bg-white text-slate-700 hover:bg-slate-50"
+                                    }`}
+                                    type="button"
+                                    disabled={busyAction === `delete-subscriber:${subscriber.id}`}
+                                    onClick={() => void deleteSubscriber(subscriber)}
+                                  >
+                                    <Trash2 className="size-4" />
+                                    <span>{deleteConfirmSubscriberId === subscriber.id ? "Confirm" : "Delete"}</span>
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </div>
-                          <div className="flex flex-wrap gap-2 md:justify-end">
-                            <button
-                              className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
-                              type="button"
-                              disabled={busyAction === `subscriber:${subscriber.id}`}
-                              onClick={() => void updateSubscriber(subscriber, !subscriber.is_active)}
-                            >
-                              {subscriber.is_active ? "Pause" : "Enable"}
-                            </button>
-                            <button
-                              className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
-                              type="button"
-                              disabled={!emailConfigured || busyAction === `test:${subscriber.id}`}
-                              onClick={() => void sendTest(subscriber)}
-                            >
-                              <Mail className="size-4" />
-                              <span>{busyAction === `test:${subscriber.id}` ? "Sending" : "Test"}</span>
-                            </button>
-                            <button
-                              className={`inline-flex h-9 items-center justify-center gap-2 rounded-md border px-3 text-sm font-medium disabled:cursor-not-allowed disabled:text-slate-400 ${
-                                deleteConfirmSubscriberId === subscriber.id ? "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100" : "border-line bg-white text-slate-700 hover:bg-slate-50"
-                              }`}
-                              type="button"
-                              disabled={busyAction === `delete-subscriber:${subscriber.id}`}
-                              onClick={() => void deleteSubscriber(subscriber)}
-                            >
-                              <Trash2 className="size-4" />
-                              <span>{deleteConfirmSubscriberId === subscriber.id ? "Confirm" : "Delete"}</span>
-                            </button>
-                          </div>
-                        </div>
-                      ))
+                        );
+                      })
                     ) : (
                       <p className="px-3 py-4 text-sm text-slate-600">{subscribers.length > 0 ? "Paused recipients are hidden." : "No recipients yet."}</p>
                     )}

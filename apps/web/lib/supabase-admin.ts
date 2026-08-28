@@ -754,8 +754,12 @@ export async function upsertEmailSubscriber(input: { email: string; displayName?
   });
 }
 
-export async function updateEmailSubscriber(input: { id: string; displayName?: string | null; isActive?: boolean }) {
+export async function updateEmailSubscriber(input: { id: string; email?: string; displayName?: string | null; isActive?: boolean }) {
   const updates: Record<string, JsonValue> = {};
+
+  if (input.email !== undefined) {
+    updates.email = input.email.trim().toLowerCase();
+  }
 
   if (input.displayName !== undefined) {
     updates.display_name = input.displayName?.trim() || null;

@@ -66,8 +66,14 @@ export async function POST(request: Request) {
       return jsonNoStore({ ok: false, error: "Missing subscriber id." }, { status: 400 });
     }
 
+    const email = typeof body.email === "string" ? normalizeEmail(body.email) : undefined;
+    if (email !== undefined && !isValidEmail(email)) {
+      return jsonNoStore({ ok: false, error: "Enter a plain email address like name@company.com." }, { status: 400 });
+    }
+
     const result = await updateEmailSubscriber({
       id: body.id,
+      email,
       displayName: typeof body.displayName === "string" ? body.displayName : undefined,
       isActive: typeof body.isActive === "boolean" ? body.isActive : undefined,
     });
