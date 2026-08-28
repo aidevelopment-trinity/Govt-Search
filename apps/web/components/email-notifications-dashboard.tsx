@@ -41,6 +41,7 @@ export function EmailNotificationsDashboard() {
   const [deleteConfirmSubscriberId, setDeleteConfirmSubscriberId] = useState<string | null>(null);
   const [showPausedRecipients, setShowPausedRecipients] = useState(false);
   const [deliveryFilter, setDeliveryFilter] = useState<DeliveryFilter>("all");
+  const [selectedDashboardSubscriberId, setSelectedDashboardSubscriberId] = useState("");
 
   useEffect(() => {
     void loadNotifications();
@@ -56,10 +57,19 @@ export function EmailNotificationsDashboard() {
       setSelectedSubscriberId("");
     }
 
+    const dashboardSubscriber = activeSubscriber ?? subscribers[0];
+    if ((!selectedDashboardSubscriberId || !subscribers.some((subscriber) => subscriber.id === selectedDashboardSubscriberId)) && dashboardSubscriber) {
+      setSelectedDashboardSubscriberId(dashboardSubscriber.id);
+    }
+
+    if (!dashboardSubscriber && selectedDashboardSubscriberId) {
+      setSelectedDashboardSubscriberId("");
+    }
+
     if ((!selectedSearchId || !searches.some((search) => search.id === selectedSearchId)) && searches[0]) {
       setSelectedSearchId(searches[0].id);
     }
-  }, [searches, selectedSearchId, selectedSubscriberId, subscribers]);
+  }, [searches, selectedDashboardSubscriberId, selectedSearchId, selectedSubscriberId, subscribers]);
 
   const subscribersById = useMemo(() => new Map(subscribers.map((subscriber) => [subscriber.id, subscriber])), [subscribers]);
   const searchesById = useMemo(() => new Map(searches.map((search) => [search.id, search])), [searches]);
@@ -139,6 +149,8 @@ export function EmailNotificationsDashboard() {
       const data = await response.json();
       if (!data.ok) {
         setMessage(data.error || "Keyword subscription could not be saved.");
+      } else {
+        setSelectedDashboardSubscriberId(selectedSubscriberId);
       }
       await loadNotifications();
     } catch {
@@ -360,11 +372,15 @@ export function EmailNotificationsDashboard() {
                 </section>
 
                 <section className="rounded-md border border-line bg-white p-4 shadow-panel">
-                  <div className="mb-3 flex items-center gap-2">
-                    <Bell className="size-4 text-slate-500" />
-                    <h2 className="text-base font-semibold">Keyword Alerts</h2>
+                  <div className="mb-3 flex flex-col gap-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Bell className="size-4 text-slate-500" />
+                      <h2 className="text-base font-semibold">Keyword Alerts</h2>
+                      <span className="rounded-md border border-line bg-slate-50 px-2 py-0.5 text-xs text-slate-500">New alert setup</span>
+                    </div>
+                    <p className="text-xs text-slate-500">Choose a recipient, keyword, and frequency, then create the alert.</p>
                   </div>
-                  <div className="grid gap-2 lg:grid-cols-[minmax(160px,1fr)_minmax(180px,1fr)_140px_110px] lg:items-end">
+                  <div className="grid gap-2 lg:grid-cols-[minmax(160px,1fr)_minmax(180px,1fr)_140px_150px] lg:items-end">
                     <Select label="Recipient" value={selectedSubscriberId} options={recipientOptions} onChange={setSelectedSubscriberId} />
                     <Select label="Keyword" value={selectedSearchId} options={searches.map((search) => ({ value: search.id, label: `${search.query} (${search.state_filter})` }))} onChange={setSelectedSearchId} />
                     <Select label="Frequency" value={frequency} options={frequencyOptions} onChange={(value) => setFrequency(value as NotificationFrequency)} />
@@ -375,7 +391,7 @@ export function EmailNotificationsDashboard() {
                       onClick={() => void addSubscription()}
                     >
                       <Plus className="size-4" />
-                      <span>Add</span>
+                      <span>Create Alert</span>
                     </button>
                   </div>
 
@@ -488,6 +504,15 @@ export function EmailNotificationsDashboard() {
                 </div>
               </aside>
             </section>
+
+            <RecipientAlertDashboard
+              subscribers={subscribers}
+              subscriptions={subscriptions}
+              searchesById={searchesById}
+              deliveries={deliveries}
+              selectedSubscriberId={selectedDashboardSubscriberId}
+              onSelectSubscriber={setSelectedDashboardSubscriberId}
+            />
           </>
         ) : null}
       </section>
@@ -543,12 +568,107 @@ function Metric({ label, value, detail }: { label: string; value: number | strin
   );
 }
 
+function RecipientAlertDashboard({
+  subscribers,
+  subscriptions,
+  searchesById,
+  deliveries,
+  selectedSubscriberId,
+  onSelectSubscriber,
+}: {
+  subscribers: EmailSubscriberRecord[];
+  subscriptions: KeywordSubscriptionRecord[];
+  searchesById: Map<string, SavedSearchRecord>;
+  deliveries: NotificationDeliveryRecord[];
+  selectedSubscriberId: string;
+  onSelectSubscriber: (id: string) => void;
+}) {
+  const selectedSubscriber = subscribers.find((subscriber) => subscriber.id === selectedSubscriberId) ?? subscribers[0] ?? null;
+  const selectedSubscriptions = selectedSubscriber ? subscriptions.filter((subscription) => subscription.subscriber_id === selectedSubscriber.id) : [];
+  const selectedDeliveries = selectedSubscriber ? deliveries.filter((delivery) => delivery.subscriber_id === selectedSubscriber.id) : [];
+  const selectedAlertDeliveries = selectedDeliveries.filter((delivery) => delivery.delivery_type !== "test");
+  const sentAlertDeliveries = selectedAlertDeliveries.filter((delivery) => delivery.status === "sent");
+  const failedAlertDeliveries = selectedAlertDeliveries.filter((delivery) => delivery.status === "failed");
+  const activeAlertCount = selectedSubscriptions.filter((subscription) => subscription.is_active).length;
+  const lastAlertDelivery = selectedAlertDeliveries[0];
+  const subscriberOptions = subscribers.map((subscriber) => ({
+    value: subscriber.id,
+    label: `${subscriber.display_name || subscriber.email}${subscriber.is_active ? "" : " (paused)"}`,
+  }));
+
+  return (
+    <section className="rounded-md border border-line bg-white p-4 shadow-panel">
+      <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <Bell className="size-4 text-slate-500" />
+            <h2 className="text-base font-semibold">Recipient Alert Dashboard</h2>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">Review one recipient's alerts and sent email history.</p>
+        </div>
+        <div className="w-full lg:w-96">
+          <Select label="Recipient" value={selectedSubscriber?.id ?? ""} options={subscriberOptions} onChange={onSelectSubscriber} />
+        </div>
+      </div>
+
+      {selectedSubscriber ? (
+        <>
+          <div className="grid gap-3 md:grid-cols-4">
+            <Metric label="Alerts created" value={selectedSubscriptions.length} detail={`${activeAlertCount} active`} />
+            <Metric label="Alert emails sent" value={sentAlertDeliveries.length} detail={lastAlertDelivery ? `Last ${formatDateTime(lastAlertDelivery.created_at)}` : "No alert emails yet"} />
+            <Metric label="Failed alert emails" value={failedAlertDeliveries.length} detail={failedAlertDeliveries.length ? "Needs review" : "No failures"} />
+            <Metric label="Recipient status" value={selectedSubscriber.is_active ? "Active" : "Paused"} detail={selectedSubscriber.email} />
+          </div>
+
+          <div className="mt-4 divide-y divide-line rounded-md border border-line">
+            {selectedSubscriptions.length > 0 ? (
+              selectedSubscriptions.map((subscription) => {
+                const search = searchesById.get(subscription.saved_search_id);
+                const alertDeliveries = selectedAlertDeliveries.filter((delivery) => delivery.saved_search_id === subscription.saved_search_id);
+                const sentForAlert = alertDeliveries.filter((delivery) => delivery.status === "sent").length;
+                const failedForAlert = alertDeliveries.filter((delivery) => delivery.status === "failed").length;
+                const lastDelivery = alertDeliveries[0];
+
+                return (
+                  <div key={subscription.id} className="grid gap-3 px-3 py-3 lg:grid-cols-[minmax(0,1fr)_150px_160px_150px] lg:items-center">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {subscription.is_active ? <CheckCircle2 className="size-4 text-emerald-600" /> : <AlertTriangle className="size-4 text-slate-400" />}
+                        <h3 className="truncate text-sm font-semibold">{search?.query ?? "Deleted keyword"}</h3>
+                        <RecipientStatusPill active={subscription.is_active} />
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {search ? `${search.state_filter} · ${search.level_filter}` : "Keyword not found"} · Created {formatDateTime(subscription.created_at)}
+                      </p>
+                    </div>
+                    <Metric label="Frequency" value={frequencyLabel(subscription.frequency)} />
+                    <Metric label="Emails sent" value={sentForAlert} detail={failedForAlert ? `${failedForAlert} failed` : "No failures"} />
+                    <Metric label="Last email" value={lastDelivery ? formatDateTime(lastDelivery.created_at) : "Never"} />
+                  </div>
+                );
+              })
+            ) : (
+              <p className="px-3 py-4 text-sm text-slate-600">No alerts have been created for this recipient.</p>
+            )}
+          </div>
+        </>
+      ) : (
+        <p className="rounded-md border border-line bg-slate-50 px-3 py-4 text-sm text-slate-600">No recipient selected.</p>
+      )}
+    </section>
+  );
+}
+
 function RecipientStatusPill({ active }: { active: boolean }) {
   return (
     <span className={`rounded-md border px-2 py-0.5 text-xs font-semibold ${active ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-500"}`}>
       {active ? "active" : "paused"}
     </span>
   );
+}
+
+function frequencyLabel(value: NotificationFrequency) {
+  return frequencyOptions.find((option) => option.value === value)?.label ?? value;
 }
 
 function DeliveryFilterButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
