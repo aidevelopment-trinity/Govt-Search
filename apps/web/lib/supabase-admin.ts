@@ -808,7 +808,7 @@ export async function createKeywordSubscription(input: {
         saved_search_id: input.savedSearchId,
         frequency: input.frequency ?? "daily",
         is_active: input.active ?? true,
-        last_notified_at: new Date().toISOString(),
+        last_notified_at: null,
       },
     ],
   });

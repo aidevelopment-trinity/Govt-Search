@@ -337,7 +337,7 @@ function isSubscriptionDue(subscription: KeywordSubscriptionRecord) {
 function digestSubject(search: SavedSearchRecord, findings: MonitorFindingRecord[]) {
   const changed = findings.filter((finding) => finding.finding_type === "changed").length;
   const fresh = findings.length - changed;
-  const parts = [`${findings.length} opportunity${findings.length === 1 ? "" : "ies"}`];
+  const parts = [`${findings.length} ${findings.length === 1 ? "opportunity" : "opportunities"}`];
   if (fresh > 0) {
     parts.push(`${fresh} new`);
   }

@@ -5,6 +5,7 @@ import {
   completeMonitorRun,
   createMonitorFindings,
   createMonitorRun,
+  listKeywordSubscriptions,
   listMonitorSearches,
   listSeenOpportunities,
   recordSourceHealth,
@@ -205,7 +206,7 @@ export async function runMonitorSearch(search: SavedSearchRecord, triggerType: "
 }
 
 export async function runDueMonitorSearches({ triggerType = "cron", maxRuns = 1 }: { triggerType?: "manual" | "cron"; maxRuns?: number } = {}) {
-  const searches = await ensureDefaultMonitorSearches();
+  const [searches, subscriptions] = await Promise.all([ensureDefaultMonitorSearches(), listKeywordSubscriptions()]);
   if (!searches.ok) {
     return {
       ok: false,
@@ -215,7 +216,15 @@ export async function runDueMonitorSearches({ triggerType = "cron", maxRuns = 1 
     };
   }
 
-  const due = searches.data.filter(isSearchDue).slice(0, Math.max(1, maxRuns));
+  const subscribedSearchIds = new Set(
+    subscriptions.ok
+      ? subscriptions.data.filter((subscription) => subscription.is_active).map((subscription) => subscription.saved_search_id)
+      : [],
+  );
+  const due = searches.data
+    .filter(isSearchDue)
+    .sort((a, b) => compareDueSearchPriority(a, b, subscribedSearchIds))
+    .slice(0, Math.max(1, maxRuns));
   const runs: MonitorRunSummary[] = [];
   for (const search of due) {
     runs.push(await runMonitorSearch(search, triggerType));
@@ -227,6 +236,25 @@ export async function runDueMonitorSearches({ triggerType = "cron", maxRuns = 1 
     runs,
     message: due.length > 0 ? `Ran ${runs.length} monitor search${runs.length === 1 ? "" : "es"}.` : "No monitor searches are due.",
   };
+}
+
+function compareDueSearchPriority(a: SavedSearchRecord, b: SavedSearchRecord, subscribedSearchIds: Set<string>) {
+  const subscriptionPriority = Number(subscribedSearchIds.has(b.id)) - Number(subscribedSearchIds.has(a.id));
+  if (subscriptionPriority !== 0) {
+    return subscriptionPriority;
+  }
+
+  const neverCheckedPriority = Number(!b.last_checked_at) - Number(!a.last_checked_at);
+  if (neverCheckedPriority !== 0) {
+    return neverCheckedPriority;
+  }
+
+  const lastCheckedPriority = parseDateValue(a.last_checked_at) - parseDateValue(b.last_checked_at);
+  if (lastCheckedPriority !== 0) {
+    return lastCheckedPriority;
+  }
+
+  return parseDateValue(a.created_at) - parseDateValue(b.created_at);
 }
 
 function isSearchDue(search: SavedSearchRecord) {
@@ -249,6 +277,15 @@ function isSearchDue(search: SavedSearchRecord) {
   }
 
   return now.getTime() - lastChecked.getTime() > 20 * 60 * 60 * 1000;
+}
+
+function parseDateValue(value: string | null) {
+  if (!value) {
+    return 0;
+  }
+
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function monitorContentHash(result: UnifiedSearchResult) {

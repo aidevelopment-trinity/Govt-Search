@@ -96,6 +96,7 @@ export function EmailNotificationsDashboard() {
   const sentDeliveries = deliveries.filter((delivery) => delivery.status === "sent").length;
   const failedDeliveries = deliveries.filter((delivery) => delivery.status === "failed").length;
   const failedTestDeliveries = deliveries.filter((delivery) => delivery.delivery_type === "test" && delivery.status === "failed");
+  const resendRestrictionDeliveries = deliveries.filter((delivery) => delivery.status === "failed" && isResendTestingRestrictionError(delivery.error_message));
   const visibleDeliveries = deliveries.filter((delivery) => deliveryFilter === "all" || delivery.status === deliveryFilter);
   const normalizedSubscriberEmail = normalizeRecipientEmail(subscriberEmail);
   const canAddSubscriber = isValidRecipientEmail(normalizedSubscriberEmail);
@@ -323,12 +324,23 @@ export function EmailNotificationsDashboard() {
             <section className="grid gap-3 md:grid-cols-4">
               <Metric label="Active recipients" value={`${activeSubscribers.length}`} detail={pausedSubscribers.length ? `${pausedSubscribers.length} paused` : "None paused"} />
               <Metric label="Keyword alerts" value={`${activeSubscriptions.length}`} detail={`${subscriptions.length} total`} />
-              <Metric label="Email provider" value={emailConfigured ? "Ready" : "Missing"} />
+              <Metric
+                label="Email provider"
+                value={emailConfigured ? (resendRestrictionDeliveries.length > 0 ? "Check domain" : "Ready") : "Missing"}
+                detail={resendRestrictionDeliveries.length > 0 ? "External sends rejected" : undefined}
+              />
               <Metric label="Deliveries" value={`${sentDeliveries} sent`} detail={failedDeliveries ? `${failedDeliveries} failed` : "No failures"} />
             </section>
 
             {!emailConfigured ? (
               <StatePanel tone="warning" title="Resend is not connected" message="Add RESEND_API_KEY and EMAIL_FROM in Vercel before live emails can send." />
+            ) : null}
+            {resendRestrictionDeliveries.length > 0 ? (
+              <StatePanel
+                tone="warning"
+                title="Resend domain action needed"
+                message="Recent emails to non-owner recipients were rejected. Verify a sending domain in Resend and set EMAIL_FROM in Vercel to an address on that domain."
+              />
             ) : null}
 
             <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_420px]">
@@ -899,6 +911,10 @@ function isValidRecipientEmail(value: string) {
   }
 
   return /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i.test(value);
+}
+
+function isResendTestingRestrictionError(value: string | null) {
+  return Boolean(value?.includes("You can only send testing emails to your own email address"));
 }
 
 function formatDateTime(value: string) {
