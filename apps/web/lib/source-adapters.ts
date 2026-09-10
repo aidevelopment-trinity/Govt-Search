@@ -22,6 +22,7 @@ type ConnectedSearchResponse = {
 type SearchTaskResult = { source: string; results: UnifiedSearchResult[]; error?: string; durationMs?: number };
 type SearchTask = { source: string; run: () => Promise<SearchTaskResult> };
 type SamSearchResult = { results: UnifiedSearchResult[]; error?: string };
+type SamSearchStrategy = { label: string; params: URLSearchParams };
 type ConnectorSearchResult = { results: UnifiedSearchResult[]; error?: string };
 type ResultQualityTier = NonNullable<UnifiedSearchResult["qualityTier"]>;
 type BeaconDateValue = { utcDate?: string; specifiedZone?: string } | string | null | undefined;
@@ -3083,17 +3084,14 @@ async function searchSam(query: string): Promise<{ source: string; results: Unif
   const today = new Date();
   const prior = new Date(today);
   prior.setDate(today.getDate() - 90);
-
-  const params = new URLSearchParams({
-    api_key: apiKey,
-    limit: "50",
-    keyword: query,
-    postedFrom: formatSamDate(prior),
-    postedTo: formatSamDate(today),
-  });
+  const postedFrom = formatSamDate(prior);
+  const postedTo = formatSamDate(today);
+  const strategies = samSearchStrategies({ query, apiKey, postedFrom, postedTo });
 
   try {
-    const cacheKey = `sam:${formatSamDate(prior)}:${formatSamDate(today)}:${query.toLowerCase()}`;
+    const cacheKey = `sam:v2:${postedFrom}:${postedTo}:${query.toLowerCase()}:${strategies
+      .map((strategy) => strategy.label)
+      .join(",")}`;
     const cached = samCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
       return { source, ...cached.value };
@@ -3104,7 +3102,7 @@ async function searchSam(query: string): Promise<{ source: string; results: Unif
       return { source, ...(await existingRequest) };
     }
 
-    const request = fetchSamSearch(`https://api.sam.gov/opportunities/v2/search?${params.toString()}`, query, terms).finally(() => {
+    const request = fetchSamSearches(strategies, query, terms).finally(() => {
       samInFlight.delete(cacheKey);
     });
     samInFlight.set(cacheKey, request);
@@ -3123,7 +3121,79 @@ async function searchSam(query: string): Promise<{ source: string; results: Unif
   }
 }
 
-async function fetchSamSearch(url: string, query: string, terms: string[]): Promise<SamSearchResult> {
+function samSearchStrategies({
+  query,
+  apiKey,
+  postedFrom,
+  postedTo,
+}: {
+  query: string;
+  apiKey: string;
+  postedFrom: string;
+  postedTo: string;
+}): SamSearchStrategy[] {
+  const baseParams = {
+    api_key: apiKey,
+    limit: "50",
+    postedFrom,
+    postedTo,
+  };
+  const strategies: SamSearchStrategy[] = [
+    {
+      label: "title",
+      params: new URLSearchParams({
+        ...baseParams,
+        title: query,
+      }),
+    },
+  ];
+
+  if (isTrainingOrLeadershipConcept(query)) {
+    strategies.push(
+      {
+        label: "psc-u008",
+        params: new URLSearchParams({
+          ...baseParams,
+          ccode: "U008",
+        }),
+      },
+      {
+        label: "naics-611430",
+        params: new URLSearchParams({
+          ...baseParams,
+          ncode: "611430",
+        }),
+      },
+    );
+  }
+
+  return strategies;
+}
+
+function isTrainingOrLeadershipConcept(query: string) {
+  return /\b(training|learning|education|course|instruction|curriculum|professional development|leadership|leader|management|manager|coaching|coach|supervisor|workforce|organizational)\b/i.test(
+    query,
+  );
+}
+
+async function fetchSamSearches(strategies: SamSearchStrategy[], query: string, terms: string[]): Promise<SamSearchResult> {
+  const batches = await Promise.all(
+    strategies.map((strategy) =>
+      fetchSamSearch(`https://api.sam.gov/opportunities/v2/search?${strategy.params.toString()}`, query, terms, strategy.label),
+    ),
+  );
+  const results = dedupeResults(batches.flatMap((batch) => batch.results))
+    .sort((a, b) => resultRankScore(b) - resultRankScore(a) || a.title.localeCompare(b.title))
+    .slice(0, 60);
+  const errors = batches.map((batch) => batch.error).filter(Boolean);
+
+  return {
+    results,
+    error: results.length === 0 ? errors.join("; ") || undefined : undefined,
+  };
+}
+
+async function fetchSamSearch(url: string, query: string, terms: string[], strategyLabel = "title"): Promise<SamSearchResult> {
   for (let attempt = 0; attempt < SAM_RETRY_DELAYS_MS.length; attempt += 1) {
     const delayMs = SAM_RETRY_DELAYS_MS[attempt];
     if (delayMs > 0) {
@@ -3165,16 +3235,26 @@ async function fetchSamSearch(url: string, query: string, terms: string[]): Prom
       .map((item: Record<string, unknown>, index: number): UnifiedSearchResult | undefined => {
       const title = stringValue(item.title) ?? "Untitled opportunity";
       const solicitation = stringValue(item.solicitationNumber);
-      const url = stringValue(item.uiLink) ?? samSearchUrl(query);
+      const noticeId = stringValue(item.noticeId);
+      const opportunityUrl = noticeId ? `https://sam.gov/opp/${noticeId}/view` : stringValue(item.uiLink) ?? samSearchUrl(query);
       const agency = stringValue(item.fullParentPathName) ?? stringValue(item.agency) ?? "SAM.gov";
       const office = stringValue(item.officeName);
       const status = stringValue(item.type) ?? "Opportunity";
       const deadline = stringValue(item.responseDeadLine);
       const postedDate = stringValue(item.postedDate);
-      const haystack = [title, solicitation, agency, office, status].filter(Boolean).join(" ").toLowerCase();
-      const score = scoreOpportunity(haystack, terms, 100 - index);
+      const naicsCode = stringValue(item.naicsCode);
+      const classificationCode = stringValue(item.classificationCode);
+      const setAside = stringValue(item.typeOfSetAsideDescription);
+      const description = samDescription(item.description);
+      const contact = samContact(item.pointOfContact);
+      const resourceLinks = samResourceLinks(item.resourceLinks);
+      const haystack = [title, solicitation, agency, office, status, naicsCode, classificationCode, setAside, description, contact]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      const score = scoreOpportunity(haystack, terms, samStrategyBaseScore(strategyLabel, index));
 
-      if (terms.length > 0 && score <= 0) {
+      if (terms.length > 0 && (score <= 0 || !hasDirectConceptSignal(haystack, query))) {
         return undefined;
       }
 
@@ -3182,8 +3262,25 @@ async function fetchSamSearch(url: string, query: string, terms: string[]): Prom
         return undefined;
       }
 
+      const documentLinks = [
+        { label: "SAM.gov opportunity package", url: opportunityUrl },
+        ...resourceLinks.map((link, linkIndex) => ({
+          label: `SAM.gov attachment ${linkIndex + 1}`,
+          url: link,
+        })),
+      ];
+      const summary = [
+        solicitation ? `Solicitation ${solicitation}.` : "",
+        office ? `Office: ${office}.` : "",
+        naicsCode ? `NAICS ${naicsCode}.` : "",
+        classificationCode ? `PSC ${classificationCode}.` : "",
+        description ? description.slice(0, 240) : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+
       return {
-        id: `sam:${solicitation ?? index}:${title}`,
+        id: `sam:${noticeId ?? solicitation ?? index}:${title}`,
         resultType: "opportunity",
         title,
         buyer: [agency, office].filter(Boolean).join(" / "),
@@ -3191,17 +3288,23 @@ async function fetchSamSearch(url: string, query: string, terms: string[]): Prom
         sourceLevel: "Federal",
         sourceState: "US",
         sourceType: "Official API",
-        url,
+        url: opportunityUrl,
         portalUrl: samSearchUrl(query),
         score,
         status,
         solicitationId: solicitation,
         deadline,
         postedDate,
-        documentLinks: [{ label: "SAM.gov opportunity package", url }],
+        contact,
+        documentLinks,
         submissionInstructions: "Open the SAM.gov opportunity package and review the solicitation attachments, response format, set-aside rules, and submission method.",
-        applicationChecklist: applicationChecklist({ hasSolicitationId: Boolean(solicitation), hasDeadline: Boolean(deadline), hasDocuments: true, hasContact: Boolean(office) }),
-        summary: [solicitation ? `Solicitation ${solicitation}.` : "", office ? `Office: ${office}.` : ""].filter(Boolean).join(" "),
+        applicationChecklist: applicationChecklist({
+          hasSolicitationId: Boolean(solicitation),
+          hasDeadline: Boolean(deadline),
+          hasDocuments: documentLinks.length > 0,
+          hasContact: Boolean(contact),
+        }),
+        summary,
         nextAction: "Review the solicitation package, then add the opportunity to the human-review tracker if it fits.",
       };
     })
@@ -3211,6 +3314,49 @@ async function fetchSamSearch(url: string, query: string, terms: string[]): Prom
   }
 
   return { results: [], error: "SAM.gov search failed." };
+}
+
+function samStrategyBaseScore(strategyLabel: string, index: number) {
+  const baseScore = strategyLabel === "title" ? 115 : strategyLabel === "psc-u008" ? 88 : strategyLabel === "naics-611430" ? 84 : 78;
+  return Math.max(25, baseScore - Math.min(index, 60));
+}
+
+function samDescription(value: unknown) {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const text = htmlToText(value);
+  return text.length > 0 ? text : undefined;
+}
+
+function samContact(value: unknown) {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const contacts = value
+    .map((contact) => {
+      if (!contact || typeof contact !== "object") {
+        return undefined;
+      }
+
+      const record = contact as Record<string, unknown>;
+      return [stringValue(record.fullName), stringValue(record.email), stringValue(record.phone)]
+        .filter(Boolean)
+        .join(" / ");
+    })
+    .filter(Boolean);
+
+  return contacts.length > 0 ? contacts.join("; ") : undefined;
+}
+
+function samResourceLinks(value: unknown) {
+  return Array.isArray(value)
+    ? value
+        .filter((link): link is string => typeof link === "string" && /^https?:\/\//i.test(link))
+        .slice(0, 5)
+    : [];
 }
 
 async function searchTexasEsbd(query: string): Promise<{ source: string; results: UnifiedSearchResult[]; error?: string }> {
