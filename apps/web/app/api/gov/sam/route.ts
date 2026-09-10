@@ -4,6 +4,7 @@ import { samSearchUrl } from "@/lib/gov-search";
 
 type SamApiResponse = { opportunitiesData?: Array<Record<string, unknown>> };
 type SamOpportunitySummary = NonNullable<ReturnType<typeof samOpportunity>>;
+type SamStrategy = { label: string; params: URLSearchParams };
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -32,28 +33,37 @@ export async function GET(request: Request) {
   try {
     const responses = await Promise.all(
       strategies.map(async (strategy) => {
-        const response = await fetch(`https://api.sam.gov/opportunities/v2/search?${strategy.params.toString()}`, {
-          next: { revalidate: 900 },
-        });
+        try {
+          const response = await fetch(`https://api.sam.gov/opportunities/v2/search?${strategy.params.toString()}`, {
+            next: { revalidate: 900 },
+          });
 
-        if (!response.ok) {
-          throw new Error(`SAM.gov returned ${response.status}.`);
+          if (!response.ok) {
+            return { error: `SAM.gov returned ${response.status}.` };
+          }
+
+          return { data: (await response.json()) as SamApiResponse };
+        } catch (error) {
+          return { error: error instanceof Error ? error.message : "SAM.gov search failed." };
         }
-
-        return (await response.json()) as SamApiResponse;
       }),
     );
+    const errors = responses.map((response) => response.error).filter(Boolean);
     const opportunities = dedupeSamOpportunities(
-      responses.flatMap((data) =>
-        Array.isArray(data.opportunitiesData)
-          ? data.opportunitiesData
+      responses.flatMap((response) =>
+        Array.isArray(response.data?.opportunitiesData)
+          ? response.data.opportunitiesData
               .map((item: Record<string, unknown>) => samOpportunity(item, query))
               .filter((item): item is SamOpportunitySummary => Boolean(item))
           : [],
       ),
     ).slice(0, 30);
 
-    return NextResponse.json({ configured: true, opportunities });
+    return NextResponse.json({
+      configured: true,
+      opportunities,
+      message: opportunities.length === 0 ? errors.join("; ") || undefined : undefined,
+    });
   } catch (error) {
     return NextResponse.json({
       configured: true,
@@ -80,25 +90,10 @@ function samStrategies({
     postedFrom,
     postedTo,
   };
-  const strategies = [
-    {
-      label: "title",
-      params: new URLSearchParams({
-        ...baseParams,
-        title: query,
-      }),
-    },
-  ];
+  const strategies: SamStrategy[] = [];
 
   if (/\b(training|learning|education|course|instruction|curriculum|professional development|leadership|leader|management|manager|coaching|coach|supervisor|workforce|organizational)\b/i.test(query)) {
     strategies.push(
-      {
-        label: "psc-u008",
-        params: new URLSearchParams({
-          ...baseParams,
-          ccode: "U008",
-        }),
-      },
       {
         label: "naics-611430",
         params: new URLSearchParams({
@@ -107,6 +102,32 @@ function samStrategies({
         }),
       },
     );
+    if (process.env.SAM_EXPANDED_SEARCH === "1") {
+      strategies.push(
+        {
+          label: "title",
+          params: new URLSearchParams({
+            ...baseParams,
+            title: query,
+          }),
+        },
+        {
+          label: "psc-u008",
+          params: new URLSearchParams({
+            ...baseParams,
+            ccode: "U008",
+          }),
+        },
+      );
+    }
+  } else {
+    strategies.push({
+      label: "title",
+      params: new URLSearchParams({
+        ...baseParams,
+        title: query,
+      }),
+    });
   }
 
   return strategies;

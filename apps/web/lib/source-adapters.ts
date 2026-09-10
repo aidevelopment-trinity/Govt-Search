@@ -788,9 +788,9 @@ const PENDING_SOURCE_MESSAGES = new Map<string, string>([
     "The current-solicitations page is public in a browser, but Cloudflare blocks Vercel/server-side fetching. Use alerts, email ingestion, or an approved browser collector before marking this source live.",
   ],
 ]);
-const SAM_SUCCESS_CACHE_MS = 15 * 60 * 1000;
+const SAM_SUCCESS_CACHE_MS = 60 * 60 * 1000;
 const SAM_ERROR_CACHE_MS = 2 * 60 * 1000;
-const SAM_RATE_LIMIT_CACHE_MS = 10 * 60 * 1000;
+const SAM_RATE_LIMIT_CACHE_MS = 30 * 60 * 1000;
 const SAM_RETRY_DELAYS_MS = [0, 1500, 4000];
 const SAM_FETCH_TIMEOUT_MS = 12000;
 const TEXAS_ESBD_SUCCESS_CACHE_MS = 5 * 60 * 1000;
@@ -3089,7 +3089,7 @@ async function searchSam(query: string): Promise<{ source: string; results: Unif
   const strategies = samSearchStrategies({ query, apiKey, postedFrom, postedTo });
 
   try {
-    const cacheKey = `sam:v2:${postedFrom}:${postedTo}:${query.toLowerCase()}:${strategies
+    const cacheKey = `sam:v3:${postedFrom}:${postedTo}:${query.toLowerCase()}:${strategies
       .map((strategy) => strategy.label)
       .join(",")}`;
     const cached = samCache.get(cacheKey);
@@ -3138,25 +3138,10 @@ function samSearchStrategies({
     postedFrom,
     postedTo,
   };
-  const strategies: SamSearchStrategy[] = [
-    {
-      label: "title",
-      params: new URLSearchParams({
-        ...baseParams,
-        title: query,
-      }),
-    },
-  ];
+  const strategies: SamSearchStrategy[] = [];
 
   if (isTrainingOrLeadershipConcept(query)) {
     strategies.push(
-      {
-        label: "psc-u008",
-        params: new URLSearchParams({
-          ...baseParams,
-          ccode: "U008",
-        }),
-      },
       {
         label: "naics-611430",
         params: new URLSearchParams({
@@ -3165,6 +3150,32 @@ function samSearchStrategies({
         }),
       },
     );
+    if (process.env.SAM_EXPANDED_SEARCH === "1") {
+      strategies.push(
+        {
+          label: "title",
+          params: new URLSearchParams({
+            ...baseParams,
+            title: query,
+          }),
+        },
+        {
+          label: "psc-u008",
+          params: new URLSearchParams({
+            ...baseParams,
+            ccode: "U008",
+          }),
+        },
+      );
+    }
+  } else {
+    strategies.push({
+      label: "title",
+      params: new URLSearchParams({
+        ...baseParams,
+        title: query,
+      }),
+    });
   }
 
   return strategies;
@@ -3179,7 +3190,10 @@ function isTrainingOrLeadershipConcept(query: string) {
 async function fetchSamSearches(strategies: SamSearchStrategy[], query: string, terms: string[]): Promise<SamSearchResult> {
   const batches = await Promise.all(
     strategies.map((strategy) =>
-      fetchSamSearch(`https://api.sam.gov/opportunities/v2/search?${strategy.params.toString()}`, query, terms, strategy.label),
+      fetchSamSearch(`https://api.sam.gov/opportunities/v2/search?${strategy.params.toString()}`, query, terms, strategy.label).catch((error) => ({
+        results: [],
+        error: errorMessage(error),
+      })),
     ),
   );
   const results = dedupeResults(batches.flatMap((batch) => batch.results))
