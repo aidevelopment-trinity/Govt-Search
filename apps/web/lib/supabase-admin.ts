@@ -1,4 +1,5 @@
 import type { ApprovedResponseBlockRecord, CompanyProfile, DraftQuestionnaire, ProposalDraftRecord, UnifiedSearchResult } from "@/lib/gov-types";
+import type { SamRateLimitSnapshot } from "@/lib/search-observability";
 
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
@@ -31,6 +32,24 @@ type SourceHealthInput = {
   sourceLevel?: string;
   healthStatus: "ok" | "error" | "pending";
   message?: string;
+};
+
+type SearchRunInput = {
+  query: string;
+  state: string;
+  level: string;
+  triggerType: "interactive" | "monitor";
+  cacheStatus: "fresh" | "cache_hit" | "failed";
+  resultsCount: number;
+  searchedSourcesCount: number;
+  pendingSourcesCount: number;
+  errorCount: number;
+  elapsedMs: number;
+  errors?: JsonValue;
+  sourceStatuses?: JsonValue;
+  samCalls: number;
+  samRateLimited: boolean;
+  samRateLimit?: SamRateLimitSnapshot;
 };
 
 export type TrackedOpportunityRecord = {
@@ -183,6 +202,39 @@ export type NotificationDeliveryRecord = {
   sent_at: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type SourceHealthRecord = {
+  id: string;
+  source_name: string;
+  source_state: string | null;
+  source_level: string | null;
+  health_status: "ok" | "error" | "pending";
+  message: string | null;
+  checked_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SearchRunRecord = {
+  id: string;
+  query: string;
+  state_filter: string;
+  level_filter: string;
+  trigger_type: "interactive" | "monitor";
+  cache_status: "fresh" | "cache_hit" | "failed";
+  results_count: number;
+  searched_sources_count: number;
+  pending_sources_count: number;
+  error_count: number;
+  elapsed_ms: number;
+  sam_calls_count: number;
+  sam_rate_limited: boolean;
+  sam_rate_limit?: JsonValue;
+  errors?: JsonValue;
+  source_statuses?: JsonValue;
+  completed_at: string;
+  created_at: string;
 };
 
 type UpdateTrackedOpportunityInput = {
@@ -952,4 +1004,57 @@ export async function recordSourceHealth(items: SourceHealthInput[]) {
       checked_at: new Date().toISOString(),
     })),
   });
+}
+
+export async function listSourceHealth(limit = 100) {
+  return supabaseRequest<SourceHealthRecord[]>("source_health", {
+    query:
+      `?select=id,source_name,source_state,source_level,health_status,message,checked_at,created_at,updated_at&order=checked_at.desc&limit=${Math.max(1, Math.min(limit, 500))}`,
+  });
+}
+
+export async function recordSearchRun(input: SearchRunInput) {
+  return supabaseRequest<SearchRunRecord[]>("search_runs", {
+    method: "POST",
+    body: [
+      {
+        query: input.query,
+        state_filter: input.state,
+        level_filter: input.level,
+        trigger_type: input.triggerType,
+        cache_status: input.cacheStatus,
+        results_count: input.resultsCount,
+        searched_sources_count: input.searchedSourcesCount,
+        pending_sources_count: input.pendingSourcesCount,
+        error_count: input.errorCount,
+        elapsed_ms: input.elapsedMs,
+        errors: input.errors ?? [],
+        source_statuses: input.sourceStatuses ?? [],
+        sam_calls_count: input.samCalls,
+        sam_rate_limited: input.samRateLimited,
+        sam_rate_limit: samRateLimitJson(input.samRateLimit),
+        completed_at: new Date().toISOString(),
+      },
+    ],
+  });
+}
+
+export async function listSearchRuns(limit = 30) {
+  return supabaseRequest<SearchRunRecord[]>("search_runs", {
+    query:
+      `?select=id,query,state_filter,level_filter,trigger_type,cache_status,results_count,searched_sources_count,pending_sources_count,error_count,elapsed_ms,sam_calls_count,sam_rate_limited,sam_rate_limit,errors,source_statuses,completed_at,created_at&order=completed_at.desc&limit=${Math.max(1, Math.min(limit, 100))}`,
+  });
+}
+
+function samRateLimitJson(input?: SamRateLimitSnapshot): JsonValue {
+  if (!input) {
+    return {};
+  }
+
+  const output: Record<string, string> = {};
+  if (input.limit) output.limit = input.limit;
+  if (input.remaining) output.remaining = input.remaining;
+  if (input.reset) output.reset = input.reset;
+  if (input.retryAfter) output.retryAfter = input.retryAfter;
+  return output;
 }

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { conceptTerms, samSearchUrl } from "@/lib/gov-search";
+import { rateLimitFromHeaders, recordSamApiCall, type SamRateLimitSnapshot } from "@/lib/search-observability";
 import type { OpportunityDocumentLink, ProcurementSource, SourceSearchStatus, UnifiedSearchResult } from "@/lib/gov-types";
 
 type SearchFilters = {
@@ -17,11 +18,32 @@ type ConnectedSearchResponse = {
   sourceStatuses: SourceSearchStatus[];
   errors: string[];
   samConfigured: boolean;
+  usage: {
+    sam: {
+      calls: number;
+      rateLimited: boolean;
+      rateLimit?: SamRateLimitSnapshot;
+    };
+  };
 };
 
-type SearchTaskResult = { source: string; results: UnifiedSearchResult[]; error?: string; durationMs?: number };
+type SearchTaskResult = {
+  source: string;
+  results: UnifiedSearchResult[];
+  error?: string;
+  durationMs?: number;
+  samCalls?: number;
+  samRateLimited?: boolean;
+  samRateLimit?: SamRateLimitSnapshot;
+};
 type SearchTask = { source: string; run: () => Promise<SearchTaskResult> };
-type SamSearchResult = { results: UnifiedSearchResult[]; error?: string };
+type SamSearchResult = {
+  results: UnifiedSearchResult[];
+  error?: string;
+  calls?: number;
+  rateLimited?: boolean;
+  rateLimit?: SamRateLimitSnapshot;
+};
 type SamSearchStrategy = { label: string; params: URLSearchParams };
 type ConnectorSearchResult = { results: UnifiedSearchResult[]; error?: string };
 type ResultQualityTier = NonNullable<UnifiedSearchResult["qualityTier"]>;
@@ -791,7 +813,7 @@ const PENDING_SOURCE_MESSAGES = new Map<string, string>([
 const SAM_SUCCESS_CACHE_MS = 60 * 60 * 1000;
 const SAM_ERROR_CACHE_MS = 2 * 60 * 1000;
 const SAM_RATE_LIMIT_CACHE_MS = 30 * 60 * 1000;
-const SAM_RETRY_DELAYS_MS = [0, 1500, 4000];
+const SAM_RETRY_DELAYS_MS = [0];
 const SAM_FETCH_TIMEOUT_MS = 12000;
 const TEXAS_ESBD_SUCCESS_CACHE_MS = 5 * 60 * 1000;
 const BONFIRE_SUCCESS_CACHE_MS = 10 * 60 * 1000;
@@ -1031,6 +1053,11 @@ export async function searchConnectedSources({ query, state, level, sources }: S
   }
 
   const settled = await runSearchTasks([...tasks].sort((a, b) => searchTaskPriority(a.source) - searchTaskPriority(b.source)), SEARCH_TASK_CONCURRENCY, SEARCH_TOTAL_TIMEOUT_MS);
+  const samUsage = {
+    calls: settled.reduce((sum, item) => sum + (item.samCalls ?? 0), 0),
+    rateLimited: settled.some((item) => item.samRateLimited),
+    rateLimit: [...settled].reverse().find((item) => item.samRateLimit)?.samRateLimit,
+  };
   const results = dedupeResults(settled.flatMap((item) => item.results).map((result) => enrichSearchResult(result, query)))
     .sort((a, b) => resultRankScore(b) - resultRankScore(a) || a.title.localeCompare(b.title))
     .slice(0, MAX_RESULTS);
@@ -1055,6 +1082,9 @@ export async function searchConnectedSources({ query, state, level, sources }: S
     sourceStatuses,
     errors,
     samConfigured,
+    usage: {
+      sam: samUsage,
+    },
   };
 }
 
@@ -3072,13 +3102,13 @@ function parseEqualisCurrentSolicitations(html: string, query: string): UnifiedS
     .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
 }
 
-async function searchSam(query: string): Promise<{ source: string; results: UnifiedSearchResult[]; error?: string }> {
+async function searchSam(query: string): Promise<SearchTaskResult> {
   const source = "SAM.gov Contract Opportunities";
   const apiKey = process.env.SAM_API_KEY;
   const terms = conceptTerms(query);
 
   if (!apiKey) {
-    return { source, results: [], error: "SAM_API_KEY is missing" };
+    return { source, results: [], error: "SAM_API_KEY is missing", samCalls: 0, samRateLimited: false };
   }
 
   const today = new Date();
@@ -3094,12 +3124,27 @@ async function searchSam(query: string): Promise<{ source: string; results: Unif
       .join(",")}`;
     const cached = samCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
-      return { source, ...cached.value };
+      return {
+        source,
+        results: cached.value.results,
+        error: cached.value.error,
+        samCalls: 0,
+        samRateLimited: cached.value.rateLimited ?? false,
+        samRateLimit: cached.value.rateLimit,
+      };
     }
 
     const existingRequest = samInFlight.get(cacheKey);
     if (existingRequest) {
-      return { source, ...(await existingRequest) };
+      const value = await existingRequest;
+      return {
+        source,
+        results: value.results,
+        error: value.error,
+        samCalls: 0,
+        samRateLimited: value.rateLimited ?? false,
+        samRateLimit: value.rateLimit,
+      };
     }
 
     const request = fetchSamSearches(strategies, query, terms).finally(() => {
@@ -3115,9 +3160,16 @@ async function searchSam(query: string): Promise<{ source: string; results: Unif
         : SAM_SUCCESS_CACHE_MS;
     samCache.set(cacheKey, { expiresAt: Date.now() + ttl, value });
 
-    return { source, ...value };
+    return {
+      source,
+      results: value.results,
+      error: value.error,
+      samCalls: value.calls ?? 0,
+      samRateLimited: value.rateLimited ?? false,
+      samRateLimit: value.rateLimit,
+    };
   } catch (error) {
-    return { source, results: [], error: errorMessage(error) };
+    return { source, results: [], error: errorMessage(error), samCalls: 0, samRateLimited: false };
   }
 }
 
@@ -3193,6 +3245,9 @@ async function fetchSamSearches(strategies: SamSearchStrategy[], query: string, 
       fetchSamSearch(`https://api.sam.gov/opportunities/v2/search?${strategy.params.toString()}`, query, terms, strategy.label).catch((error) => ({
         results: [],
         error: errorMessage(error),
+        calls: 1,
+        rateLimited: false,
+        rateLimit: undefined,
       })),
     ),
   );
@@ -3204,6 +3259,9 @@ async function fetchSamSearches(strategies: SamSearchStrategy[], query: string, 
   return {
     results,
     error: results.length === 0 ? errors.join("; ") || undefined : undefined,
+    calls: batches.reduce((sum, batch) => sum + (batch.calls ?? 0), 0),
+    rateLimited: batches.some((batch) => batch.rateLimited),
+    rateLimit: [...batches].reverse().find((batch) => batch.rateLimit)?.rateLimit,
   };
 }
 
@@ -3225,6 +3283,16 @@ async function fetchSamSearch(url: string, query: string, terms: string[], strat
       SAM_FETCH_TIMEOUT_MS,
     );
 
+    const rateLimit = rateLimitFromHeaders(response.headers);
+    recordSamApiCall({
+      strategy: strategyLabel,
+      status: response.status,
+      ok: response.ok,
+      rateLimited: response.status === 429,
+      message: response.ok ? undefined : `SAM.gov returned ${response.status}`,
+      rateLimit,
+    });
+
     if (response.status === 429 && attempt < SAM_RETRY_DELAYS_MS.length - 1) {
       continue;
     }
@@ -3233,16 +3301,19 @@ async function fetchSamSearch(url: string, query: string, terms: string[], strat
       return {
         results: [],
         error: "SAM.gov rate limited the API key. The connector is wired, cached, and will retry after a cooldown.",
+        calls: attempt + 1,
+        rateLimited: true,
+        rateLimit,
       };
     }
 
     if (!response.ok) {
-      return { results: [], error: `official API returned ${response.status}` };
+      return { results: [], error: `official API returned ${response.status}`, calls: attempt + 1, rateLimited: false, rateLimit };
     }
 
     const data = await response.json();
     if (!Array.isArray(data.opportunitiesData)) {
-      return { results: [] };
+      return { results: [], calls: attempt + 1, rateLimited: false, rateLimit };
     }
 
     const results = (data.opportunitiesData as Array<Record<string, unknown>>)
@@ -3324,10 +3395,10 @@ async function fetchSamSearch(url: string, query: string, terms: string[], strat
     })
     .filter((result): result is UnifiedSearchResult => Boolean(result));
 
-    return { results };
+    return { results, calls: attempt + 1, rateLimited: false, rateLimit };
   }
 
-  return { results: [], error: "SAM.gov search failed." };
+  return { results: [], error: "SAM.gov search failed.", calls: SAM_RETRY_DELAYS_MS.length, rateLimited: false };
 }
 
 function samStrategyBaseScore(strategyLabel: string, index: number) {

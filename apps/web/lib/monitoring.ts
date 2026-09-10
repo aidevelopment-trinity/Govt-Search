@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { getProcurementSources } from "@/lib/gov-contracts";
+import { recordRuntimeSearchRun } from "@/lib/search-observability";
 import { searchConnectedSources } from "@/lib/source-adapters";
 import {
   completeMonitorRun,
@@ -9,6 +10,7 @@ import {
   listMonitorSearches,
   listSeenOpportunities,
   recordSourceHealth,
+  recordSearchRun,
   updateSearchAfterMonitor,
   upsertMonitorSearch,
   upsertSeenOpportunities,
@@ -167,6 +169,41 @@ export async function runMonitorSearch(search: SavedSearchRecord, triggerType: "
       message: `Found ${newCount} new and ${changedCount} changed opportunities.`,
       errors: searchResult.errors,
       sourceStatuses: slimSourceStatuses(searchResult.sourceStatuses),
+    });
+    const sourceStatuses = slimSourceStatuses(searchResult.sourceStatuses);
+    recordRuntimeSearchRun({
+      query: search.query,
+      state: search.state_filter,
+      level: search.level_filter,
+      cacheStatus: "fresh",
+      triggerType: "monitor",
+      resultsCount: searchResult.results.length,
+      searchedSourcesCount: searchResult.searchedSources.length,
+      pendingSourcesCount: searchResult.pendingSources.length,
+      errorCount: searchResult.errors.length,
+      elapsedMs,
+      samCalls: searchResult.usage.sam.calls,
+      samRateLimited: searchResult.usage.sam.rateLimited,
+      samRateLimit: searchResult.usage.sam.rateLimit,
+      sourceStatuses,
+      errors: searchResult.errors,
+    });
+    await recordSearchRun({
+      query: search.query,
+      state: search.state_filter,
+      level: search.level_filter,
+      triggerType: "monitor",
+      cacheStatus: "fresh",
+      resultsCount: searchResult.results.length,
+      searchedSourcesCount: searchResult.searchedSources.length,
+      pendingSourcesCount: searchResult.pendingSources.length,
+      errorCount: searchResult.errors.length,
+      elapsedMs,
+      errors: searchResult.errors,
+      sourceStatuses,
+      samCalls: searchResult.usage.sam.calls,
+      samRateLimited: searchResult.usage.sam.rateLimited,
+      samRateLimit: searchResult.usage.sam.rateLimit,
     });
 
     return {

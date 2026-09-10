@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { getProcurementSources } from "@/lib/gov-contracts";
-import { recordSourceHealth } from "@/lib/supabase-admin";
+import { recordRuntimeSearchRun } from "@/lib/search-observability";
+import { recordSearchRun, recordSourceHealth } from "@/lib/supabase-admin";
 import { searchConnectedSources } from "@/lib/source-adapters";
-import type { UnifiedSearchResponse } from "@/lib/gov-types";
+import type { SourceSearchStatus, UnifiedSearchResponse } from "@/lib/gov-types";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -40,32 +41,37 @@ export async function GET(request: Request) {
     const cacheKey = searchCacheKey({ query, state, level });
     const cached = searchResponseCache.get(cacheKey);
     if (!forceRefresh && cached && cached.expiresAt > Date.now()) {
-      return jsonNoStore({
+      const cachedUsage = cached.body.usage?.sam
+        ? {
+            ...cached.body.usage,
+            sam: {
+              ...cached.body.usage.sam,
+              calls: 0,
+            },
+          }
+        : cached.body.usage;
+      const cachedBody = {
         ...cached.body,
         cached: true,
         cacheAgeMs: Date.now() - cached.savedAt,
         elapsedMs: Date.now() - startedAt,
-      });
+        usage: cachedUsage,
+      } satisfies UnifiedSearchResponse;
+      await withPersistenceBudget(
+        persistSearchRun({
+          body: cachedBody,
+          state,
+          level,
+          cacheStatus: "cache_hit",
+          triggerType: "interactive",
+        }),
+      );
+      return jsonNoStore(cachedBody);
     }
 
     const sources = await getProcurementSources();
     const connectedSearch = await searchConnectedSources({ query, state, level, sources });
     const sourcesByName = new Map(sources.map((source) => [source.source_name, source]));
-
-    await withPersistenceBudget(
-      recordSourceHealth(
-        connectedSearch.sourceStatuses.map((status) => {
-          const source = sourcesByName.get(status.sourceName);
-          return {
-            sourceName: status.sourceName,
-            sourceState: source?.state,
-            sourceLevel: source?.level,
-            healthStatus: status.status,
-            message: status.message,
-          };
-        }),
-      ),
-    );
 
     const body = {
       query,
@@ -84,6 +90,7 @@ export async function GET(request: Request) {
       pendingSources: connectedSearch.pendingSources,
       sourceStatuses: connectedSearch.sourceStatuses,
       errors: connectedSearch.errors,
+      usage: connectedSearch.usage,
       message:
         connectedSearch.results.length > 0
           ? "Search complete across connected sources."
@@ -96,10 +103,33 @@ export async function GET(request: Request) {
       body,
     });
 
+    await withPersistenceBudget(
+      Promise.all([
+        recordSourceHealth(
+          connectedSearch.sourceStatuses.map((status) => {
+            const source = sourcesByName.get(status.sourceName);
+            return {
+              sourceName: status.sourceName,
+              sourceState: source?.state,
+              sourceLevel: source?.level,
+              healthStatus: status.status,
+              message: status.message,
+            };
+          }),
+        ),
+        persistSearchRun({
+          body,
+          state,
+          level,
+          cacheStatus: "fresh",
+          triggerType: "interactive",
+        }),
+      ]),
+    );
+
     return jsonNoStore(body);
   } catch (error) {
-    return jsonNoStore(
-      {
+    const body = {
         query,
         configured: Boolean(process.env.SAM_API_KEY),
         cached: false,
@@ -112,7 +142,16 @@ export async function GET(request: Request) {
         sourceStatuses: [],
         errors: [error instanceof Error ? error.message : "Search failed."],
         message: "Search failed before connector results could be returned.",
-      } satisfies UnifiedSearchResponse,
+      } satisfies UnifiedSearchResponse;
+    void persistSearchRun({
+      body,
+      state,
+      level,
+      cacheStatus: "failed",
+      triggerType: "interactive",
+    });
+    return jsonNoStore(
+      body,
       { status: 500 },
     );
   }
@@ -139,6 +178,69 @@ async function withPersistenceBudget(task: Promise<unknown>) {
       setTimeout(resolve, 1500);
     }),
   ]);
+}
+
+async function persistSearchRun({
+  body,
+  state,
+  level,
+  cacheStatus,
+  triggerType,
+}: {
+  body: UnifiedSearchResponse;
+  state: string;
+  level: string;
+  cacheStatus: "fresh" | "cache_hit" | "failed";
+  triggerType: "interactive" | "monitor";
+}) {
+  const sourceStatuses = slimSourceStatuses(body.sourceStatuses ?? []);
+  const samUsage = body.usage?.sam;
+  recordRuntimeSearchRun({
+    query: body.query,
+    state,
+    level,
+    cacheStatus,
+    triggerType,
+    resultsCount: body.results.length,
+    searchedSourcesCount: body.searchedSources.length,
+    pendingSourcesCount: body.pendingSources.length,
+    errorCount: body.errors.length,
+    elapsedMs: body.elapsedMs ?? 0,
+    samCalls: samUsage?.calls ?? 0,
+    samRateLimited: samUsage?.rateLimited ?? false,
+    samRateLimit: samUsage?.rateLimit,
+    sourceStatuses,
+    errors: body.errors,
+    completedAt: body.completedAt,
+  });
+
+  await recordSearchRun({
+    query: body.query,
+    state,
+    level,
+    triggerType,
+    cacheStatus,
+    resultsCount: body.results.length,
+    searchedSourcesCount: body.searchedSources.length,
+    pendingSourcesCount: body.pendingSources.length,
+    errorCount: body.errors.length,
+    elapsedMs: body.elapsedMs ?? 0,
+    errors: body.errors,
+    sourceStatuses,
+    samCalls: samUsage?.calls ?? 0,
+    samRateLimited: samUsage?.rateLimited ?? false,
+    samRateLimit: samUsage?.rateLimit,
+  });
+}
+
+function slimSourceStatuses(sourceStatuses: SourceSearchStatus[]) {
+  return sourceStatuses.slice(0, 200).map((status) => ({
+    sourceName: status.sourceName,
+    status: status.status,
+    message: status.message,
+    resultCount: status.resultCount,
+    ...(typeof status.durationMs === "number" ? { durationMs: status.durationMs } : {}),
+  }));
 }
 
 function jsonNoStore(body: unknown, init: ResponseInit = {}) {

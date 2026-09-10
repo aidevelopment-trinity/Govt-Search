@@ -52,6 +52,19 @@ export type SourceSearchStatus = {
   durationMs?: number;
 };
 
+export type SearchUsage = {
+  sam?: {
+    calls: number;
+    rateLimited: boolean;
+    rateLimit?: {
+      limit?: string;
+      remaining?: string;
+      reset?: string;
+      retryAfter?: string;
+    };
+  };
+};
+
 export type UnifiedSearchResponse = {
   query: string;
   configured: boolean;
@@ -71,6 +84,7 @@ export type UnifiedSearchResponse = {
   pendingSources: string[];
   sourceStatuses: SourceSearchStatus[];
   errors: string[];
+  usage?: SearchUsage;
   message?: string;
 };
 
