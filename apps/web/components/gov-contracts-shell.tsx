@@ -105,7 +105,7 @@ export function GovContractsShell({
       return items;
     }, new Map<string, number>());
 
-    return [["All", qualityFilteredResults.length] as const, ...Array.from(counts.entries()).sort(([a], [b]) => a.localeCompare(b))];
+    return [["All", qualityFilteredResults.length] as const, ...Array.from(counts.entries()).sort(compareSourceTabs)];
   }, [qualityFilteredResults]);
   const sourceStatuses = searchResponse.sourceStatuses ?? [];
   const visibleResults = selectedSource === "All" ? qualityFilteredResults : qualityFilteredResults.filter((result) => result.sourceName === selectedSource);
@@ -987,6 +987,16 @@ function resultMatchesQuality(result: UnifiedSearchResult, qualityMode: QualityM
   }
 
   return tier !== "weak" && result.score >= 55;
+}
+
+function compareSourceTabs([sourceA]: readonly [string, number], [sourceB]: readonly [string, number]) {
+  const aIsSam = sourceA === "SAM.gov";
+  const bIsSam = sourceB === "SAM.gov";
+  if (aIsSam !== bIsSam) {
+    return aIsSam ? -1 : 1;
+  }
+
+  return sourceA.localeCompare(sourceB);
 }
 
 function qualityLabel(tier: NonNullable<UnifiedSearchResult["qualityTier"]>) {
