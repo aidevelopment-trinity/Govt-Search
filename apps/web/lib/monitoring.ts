@@ -109,7 +109,8 @@ export async function runMonitorSearch(
     }
 
     const seenByResultId = new Map(seenResult.data.map((item) => [item.source_result_id, item]));
-    const seenUpserts = searchResult.results.map((result) => {
+    const monitorResults = dedupeMonitorResults(searchResult.results);
+    const seenUpserts = monitorResults.map((result) => {
       const existing = seenByResultId.get(result.id);
       const contentHash = monitorContentHash(result);
       const changed = Boolean(existing && (existing.content_hash !== contentHash || existing.deadline !== (result.deadline ?? null) || existing.opportunity_url !== result.url));
@@ -228,7 +229,7 @@ export async function runMonitorSearch(
   } catch (error) {
     const elapsedMs = Date.now() - startedAt;
     const message = error instanceof Error ? error.message : "Monitor run failed.";
-    await completeMonitorRun({
+    const failedRunResult = await completeMonitorRun({
       runId: run.id,
       status: "failed",
       resultsCount: 0,
@@ -247,7 +248,7 @@ export async function runMonitorSearch(
       ok: false,
       configured: true,
       search,
-      run,
+      run: failedRunResult.ok ? failedRunResult.data[0] ?? run : run,
       message,
     };
   }
@@ -332,6 +333,17 @@ function cleanupSummary(result: Awaited<ReturnType<typeof failStaleMonitorRuns>>
     configured: true,
     failedRunsMarked: result.data.length,
   };
+}
+
+function dedupeMonitorResults(results: UnifiedSearchResult[]) {
+  const deduped = new Map<string, UnifiedSearchResult>();
+  for (const result of results) {
+    if (!deduped.has(result.id)) {
+      deduped.set(result.id, result);
+    }
+  }
+
+  return [...deduped.values()];
 }
 
 function compareDueSearchPriority(a: SavedSearchRecord, b: SavedSearchRecord, subscribedSearchIds: Set<string>) {
