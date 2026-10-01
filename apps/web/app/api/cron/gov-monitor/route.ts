@@ -14,6 +14,17 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 });
   }
 
-  const result = await runDueMonitorSearches({ triggerType: "cron", maxRuns: 1 });
+  const url = new URL(request.url);
+  const maxRuns = clampNumber(url.searchParams.get("maxRuns"), 1, 5, 3);
+  const result = await runDueMonitorSearches({ triggerType: "cron", maxRuns, timeBudgetMs: 54_000, perSearchTimeoutMs: 45_000 });
   return NextResponse.json(result, { status: result.ok || result.configured === false ? 200 : 502 });
+}
+
+function clampNumber(value: string | null, min: number, max: number, fallback: number) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+
+  return Math.max(min, Math.min(max, Math.floor(numeric)));
 }

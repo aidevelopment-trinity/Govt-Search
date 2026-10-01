@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ensureDefaultMonitorSearches, runDueMonitorSearches, runMonitorSearch } from "@/lib/monitoring";
+import { cleanupStaleMonitorRuns, ensureDefaultMonitorSearches, runDueMonitorSearches, runMonitorSearch } from "@/lib/monitoring";
 import { listMonitorFindings, listMonitorRuns, listMonitorSearches, updateMonitorSearch, upsertMonitorSearch } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
@@ -72,13 +72,18 @@ export async function POST(request: Request) {
       return jsonNoStore({ ok: false, configured: true, error: "Monitor search was not found." }, { status: 404 });
     }
 
-    const result = await runMonitorSearch(search, "manual");
+    const result = await runMonitorSearch(search, "manual", { searchTimeoutMs: 45_000 });
     return jsonNoStore(result, { status: result.ok || result.configured === false ? 200 : 502 });
   }
 
   if (body.action === "run-due") {
-    const maxRuns = Number.isFinite(Number(body.maxRuns)) ? Number(body.maxRuns) : 1;
-    const result = await runDueMonitorSearches({ triggerType: "manual", maxRuns });
+    const maxRuns = Number.isFinite(Number(body.maxRuns)) ? Number(body.maxRuns) : 3;
+    const result = await runDueMonitorSearches({ triggerType: "manual", maxRuns, timeBudgetMs: 54_000, perSearchTimeoutMs: 45_000 });
+    return jsonNoStore(result, { status: result.ok || result.configured === false ? 200 : 502 });
+  }
+
+  if (body.action === "cleanup-stale-runs") {
+    const result = await cleanupStaleMonitorRuns();
     return jsonNoStore(result, { status: result.ok || result.configured === false ? 200 : 502 });
   }
 

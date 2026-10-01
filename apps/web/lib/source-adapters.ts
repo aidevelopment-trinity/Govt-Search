@@ -9,6 +9,7 @@ type SearchFilters = {
   state: string;
   level: string;
   sources: ProcurementSource[];
+  timeoutMs?: number;
 };
 
 type ConnectedSearchResponse = {
@@ -866,7 +867,7 @@ const northCarolinaEvpInFlight = getGlobalMap<Promise<NorthCarolinaEvpRecord[]>>
 const advantageVssRowsCache = getGlobalMap<{ expiresAt: number; rows: AdvantageVssRow[] }>("__govContractFinderAdvantageVssRowsCache");
 const advantageVssRowsInFlight = getGlobalMap<Promise<AdvantageVssRow[]>>("__govContractFinderAdvantageVssRowsInFlight");
 
-export async function searchConnectedSources({ query, state, level, sources }: SearchFilters): Promise<ConnectedSearchResponse> {
+export async function searchConnectedSources({ query, state, level, sources, timeoutMs = SEARCH_TOTAL_TIMEOUT_MS }: SearchFilters): Promise<ConnectedSearchResponse> {
   const tasks: SearchTask[] = [];
   const searchedSources: string[] = [];
   const pendingSources = sources
@@ -1052,7 +1053,11 @@ export async function searchConnectedSources({ query, state, level, sources }: S
     continue;
   }
 
-  const settled = await runSearchTasks([...tasks].sort((a, b) => searchTaskPriority(a.source) - searchTaskPriority(b.source)), SEARCH_TASK_CONCURRENCY, SEARCH_TOTAL_TIMEOUT_MS);
+  const settled = await runSearchTasks(
+    [...tasks].sort((a, b) => searchTaskPriority(a.source) - searchTaskPriority(b.source)),
+    SEARCH_TASK_CONCURRENCY,
+    Math.max(5_000, Math.min(timeoutMs, SEARCH_TOTAL_TIMEOUT_MS)),
+  );
   const samUsage = {
     calls: settled.reduce((sum, item) => sum + (item.samCalls ?? 0), 0),
     rateLimited: settled.some((item) => item.samRateLimited),

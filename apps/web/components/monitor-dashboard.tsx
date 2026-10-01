@@ -217,7 +217,7 @@ export function MonitorDashboard() {
       const response = await fetch("/api/gov/monitor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "run-due", maxRuns: 1 }),
+        body: JSON.stringify({ action: "run-due", maxRuns: 3 }),
       });
       const data = await response.json();
       if (!data.ok) {

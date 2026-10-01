@@ -437,6 +437,22 @@ export async function completeMonitorRun(input: {
   });
 }
 
+export async function failStaleMonitorRuns(input: { cutoffIso: string; message: string }) {
+  return supabaseRequest<MonitorRunRecord[]>("monitor_runs", {
+    method: "PATCH",
+    query:
+      `?run_status=eq.running&started_at=lt.${encodeURIComponent(input.cutoffIso)}` +
+      "&select=id,saved_search_id,query,state_filter,level_filter,run_status,trigger_type,results_count,searched_sources_count,pending_sources_count,error_count,new_results_count,changed_results_count,elapsed_ms,message,started_at,completed_at,created_at,updated_at",
+    body: {
+      run_status: "failed",
+      error_count: 1,
+      message: input.message,
+      errors: [input.message],
+      completed_at: new Date().toISOString(),
+    },
+  });
+}
+
 export async function updateSearchAfterMonitor(input: {
   id: string;
   resultsCount: number;

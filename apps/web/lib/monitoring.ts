@@ -6,6 +6,7 @@ import {
   completeMonitorRun,
   createMonitorFindings,
   createMonitorRun,
+  failStaleMonitorRuns,
   listKeywordSubscriptions,
   listMonitorSearches,
   listSeenOpportunities,
@@ -29,6 +30,11 @@ export type MonitorRunSummary = {
   message: string;
 };
 
+const DEFAULT_MONITOR_SEARCH_TIMEOUT_MS = 45_000;
+const DEFAULT_MONITOR_RUN_BUDGET_MS = 54_000;
+const STALE_RUNNING_RUN_MS = 70 * 60 * 1000;
+const MINIMUM_RUN_HEADROOM_MS = 12_000;
+
 export async function ensureDefaultMonitorSearches() {
   const existing = await listMonitorSearches();
   if (!existing.ok || existing.data.length > 0) {
@@ -40,7 +46,11 @@ export async function ensureDefaultMonitorSearches() {
   return listMonitorSearches();
 }
 
-export async function runMonitorSearch(search: SavedSearchRecord, triggerType: "manual" | "cron"): Promise<MonitorRunSummary> {
+export async function runMonitorSearch(
+  search: SavedSearchRecord,
+  triggerType: "manual" | "cron",
+  options: { searchTimeoutMs?: number } = {},
+): Promise<MonitorRunSummary> {
   const startedAt = Date.now();
   const runResult = await createMonitorRun({
     savedSearchId: search.id,
@@ -76,6 +86,7 @@ export async function runMonitorSearch(search: SavedSearchRecord, triggerType: "
       state: search.state_filter,
       level: search.level_filter,
       sources,
+      timeoutMs: options.searchTimeoutMs,
     });
     const sourcesByName = new Map(sources.map((source) => [source.source_name, source]));
 
@@ -242,13 +253,33 @@ export async function runMonitorSearch(search: SavedSearchRecord, triggerType: "
   }
 }
 
-export async function runDueMonitorSearches({ triggerType = "cron", maxRuns = 1 }: { triggerType?: "manual" | "cron"; maxRuns?: number } = {}) {
-  const [searches, subscriptions] = await Promise.all([ensureDefaultMonitorSearches(), listKeywordSubscriptions()]);
+export async function cleanupStaleMonitorRuns(staleAfterMs = STALE_RUNNING_RUN_MS) {
+  const cutoffIso = new Date(Date.now() - staleAfterMs).toISOString();
+  return failStaleMonitorRuns({
+    cutoffIso,
+    message: `Marked failed because the monitor did not complete within ${Math.round(staleAfterMs / 60_000)} minutes.`,
+  });
+}
+
+export async function runDueMonitorSearches({
+  triggerType = "cron",
+  maxRuns = 1,
+  timeBudgetMs = DEFAULT_MONITOR_RUN_BUDGET_MS,
+  perSearchTimeoutMs = DEFAULT_MONITOR_SEARCH_TIMEOUT_MS,
+}: {
+  triggerType?: "manual" | "cron";
+  maxRuns?: number;
+  timeBudgetMs?: number;
+  perSearchTimeoutMs?: number;
+} = {}) {
+  const startedAt = Date.now();
+  const [cleanupResult, searches, subscriptions] = await Promise.all([cleanupStaleMonitorRuns(), ensureDefaultMonitorSearches(), listKeywordSubscriptions()]);
   if (!searches.ok) {
     return {
       ok: false,
       configured: searches.configured,
       runs: [] as MonitorRunSummary[],
+      cleanup: cleanupSummary(cleanupResult),
       message: searches.error,
     };
   }
@@ -264,14 +295,42 @@ export async function runDueMonitorSearches({ triggerType = "cron", maxRuns = 1 
     .slice(0, Math.max(1, maxRuns));
   const runs: MonitorRunSummary[] = [];
   for (const search of due) {
-    runs.push(await runMonitorSearch(search, triggerType));
+    const elapsedMs = Date.now() - startedAt;
+    const remainingMs = timeBudgetMs - elapsedMs;
+    if (remainingMs < MINIMUM_RUN_HEADROOM_MS) {
+      break;
+    }
+
+    const searchTimeoutMs = Math.max(5_000, Math.min(perSearchTimeoutMs, remainingMs - 5_000));
+    runs.push(await runMonitorSearch(search, triggerType, { searchTimeoutMs }));
   }
 
   return {
     ok: runs.every((run) => run.ok),
     configured: true,
     runs,
-    message: due.length > 0 ? `Ran ${runs.length} monitor search${runs.length === 1 ? "" : "es"}.` : "No monitor searches are due.",
+    cleanup: cleanupSummary(cleanupResult),
+    message:
+      due.length > 0
+        ? `Ran ${runs.length} of ${due.length} due monitor search${due.length === 1 ? "" : "es"} within the time budget.`
+        : "No monitor searches are due.",
+  };
+}
+
+function cleanupSummary(result: Awaited<ReturnType<typeof failStaleMonitorRuns>>) {
+  if (!result.ok) {
+    return {
+      ok: false,
+      configured: result.configured,
+      failedRunsMarked: 0,
+      error: result.error,
+    };
+  }
+
+  return {
+    ok: true,
+    configured: true,
+    failedRunsMarked: result.data.length,
   };
 }
 
