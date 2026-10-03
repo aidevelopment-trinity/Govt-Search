@@ -108,6 +108,16 @@ export function MonitorDashboard() {
   const recentNewCount = findings.filter((finding) => finding.finding_type === "new").length;
   const recentChangedCount = findings.filter((finding) => finding.finding_type === "changed").length;
   const latestRun = runs[0] ?? null;
+  const dueCount = searches.filter(isMonitorSearchDue).length;
+  const duplicateGroupCount = countDuplicateMonitorGroups(searches);
+  const recentFailedRuns = runs.filter((run) => run.run_status === "failed" && Date.now() - Date.parse(run.started_at) < 24 * 60 * 60 * 1000).length;
+  const latestRunAgeHours = latestRun ? (Date.now() - Date.parse(latestRun.started_at)) / (60 * 60 * 1000) : null;
+  const monitorWarnings = [
+    dueCount > 0 ? `${dueCount} monitor ${dueCount === 1 ? "search is" : "searches are"} due.` : null,
+    duplicateGroupCount > 0 ? `${duplicateGroupCount} duplicate monitor ${duplicateGroupCount === 1 ? "keyword needs" : "keywords need"} cleanup.` : null,
+    recentFailedRuns > 0 ? `${recentFailedRuns} monitor ${recentFailedRuns === 1 ? "run failed" : "runs failed"} in the last 24 hours.` : null,
+    latestRunAgeHours !== null && latestRunAgeHours > 26 ? `Last monitor run was ${Math.round(latestRunAgeHours)} hours ago.` : null,
+  ].filter(Boolean) as string[];
 
   const searchesByFreshness = useMemo(() => {
     return [...searches].sort((a, b) => {
@@ -231,6 +241,25 @@ export function MonitorDashboard() {
     }
   }
 
+  async function cleanupDuplicates() {
+    setBusyAction("cleanup-duplicates");
+    setMessage("");
+    try {
+      const response = await fetch("/api/gov/monitor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "cleanup-duplicates" }),
+      });
+      const data = await response.json();
+      setMessage(data.message || (data.ok ? "Duplicate cleanup completed." : data.error || "Duplicate cleanup failed."));
+      await loadMonitor();
+    } catch {
+      setMessage("Duplicate cleanup failed.");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-surface text-ink">
       <header className="border-b border-line bg-white">
@@ -271,8 +300,11 @@ export function MonitorDashboard() {
 
         {status === "ready" ? (
           <>
-            <section className="grid gap-3 md:grid-cols-4">
+            {monitorWarnings.length > 0 ? <StatePanel tone="warning" title="Monitor attention needed" message={monitorWarnings.join(" ")} /> : null}
+
+            <section className="grid gap-3 md:grid-cols-5">
               <Metric label="Monitors" value={`${enabledCount}/${searches.length}`} />
+              <Metric label="Due" value={dueCount} />
               <Metric label="New findings" value={recentNewCount} />
               <Metric label="Changed" value={recentChangedCount} />
               <Metric label="Latest run" value={latestRun ? runStatusLabel(latestRun) : "-"} />
@@ -318,6 +350,15 @@ export function MonitorDashboard() {
                 >
                   <Play className="size-4" />
                   <span>{busyAction === "run-due" ? "Running" : "Run Due"}</span>
+                </button>
+                <button
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+                  type="button"
+                  disabled={busyAction === "cleanup-duplicates" || duplicateGroupCount === 0}
+                  onClick={() => void cleanupDuplicates()}
+                >
+                  <RefreshCw className={`size-4 ${busyAction === "cleanup-duplicates" ? "animate-spin" : ""}`} />
+                  <span>{busyAction === "cleanup-duplicates" ? "Cleaning" : "Clean Duplicates"}</span>
                 </button>
               </div>
 
@@ -500,6 +541,38 @@ function runStatusLabel(run: MonitorRun) {
   }
 
   return `${run.new_results_count} new`;
+}
+
+function isMonitorSearchDue(search: MonitorSearch) {
+  if (!search.monitor_enabled || search.monitor_frequency === "manual") {
+    return false;
+  }
+
+  const now = new Date();
+  if (search.monitor_frequency === "weekdays" && [0, 6].includes(now.getDay())) {
+    return false;
+  }
+
+  if (!search.last_checked_at) {
+    return true;
+  }
+
+  const checkedAt = Date.parse(search.last_checked_at);
+  if (!Number.isFinite(checkedAt)) {
+    return true;
+  }
+
+  return Date.now() - checkedAt >= 23 * 60 * 60 * 1000;
+}
+
+function countDuplicateMonitorGroups(searches: MonitorSearch[]) {
+  const counts = new Map<string, number>();
+  for (const search of searches) {
+    const key = [search.query.trim().toLowerCase().replace(/\s+/g, " "), search.state_filter, search.level_filter].join("::");
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  return [...counts.values()].filter((count) => count > 1).length;
 }
 
 function formatDateTime(value: string) {

@@ -20,6 +20,12 @@ type EmailSendResult = {
   error?: string;
 };
 
+type PreparedSubscriptionDigest = {
+  subscription: KeywordSubscriptionRecord;
+  search: SavedSearchRecord;
+  findings: MonitorFindingRecord[];
+};
+
 export type EmailNotificationRunSummary = {
   ok: boolean;
   configured: boolean;
@@ -86,12 +92,13 @@ export async function runDueEmailNotifications({
       return Boolean(subscriber?.is_active && search?.monitor_enabled);
     })
     .filter((subscription) => force || isSubscriptionDue(subscription))
-    .slice(0, Math.max(1, Math.min(limitSubscriptions, 50)));
+    .slice(0, Math.max(1, Math.min(limitSubscriptions, 100)));
 
   let sent = 0;
   let skipped = 0;
   let failed = 0;
   const errors: string[] = [];
+  const preparedDigests: PreparedSubscriptionDigest[] = [];
 
   for (const subscription of subscriptions) {
     const subscriber = subscribersById.get(subscription.subscriber_id);
@@ -116,14 +123,35 @@ export async function runDueEmailNotifications({
       continue;
     }
 
-    const subject = digestSubject(search, findings);
+    preparedDigests.push({ subscription, search, findings });
+  }
+
+  const digestsBySubscriber = new Map<string, { subscriber: EmailSubscriberRecord; items: PreparedSubscriptionDigest[] }>();
+  for (const item of preparedDigests) {
+    const subscriber = subscribersById.get(item.subscription.subscriber_id);
+    if (!subscriber) {
+      skipped += 1;
+      continue;
+    }
+
+    const existing = digestsBySubscriber.get(subscriber.id);
+    if (existing) {
+      existing.items.push(item);
+    } else {
+      digestsBySubscriber.set(subscriber.id, { subscriber, items: [item] });
+    }
+  }
+
+  for (const { subscriber, items } of digestsBySubscriber.values()) {
+    const subject = groupedDigestSubject(items);
+    const findingIds = unique(items.flatMap((item) => item.findings.map((finding) => finding.id)));
     const deliveryResult = await createNotificationDelivery({
       subscriberId: subscriber.id,
-      savedSearchId: search.id,
-      monitorRunId: findings[findings.length - 1]?.run_id ?? null,
-      deliveryType: subscription.frequency,
+      savedSearchId: items.length === 1 ? items[0].search.id : null,
+      monitorRunId: latestFinding(items.flatMap((item) => item.findings))?.run_id ?? null,
+      deliveryType: groupedDeliveryType(items),
       subject,
-      findingIds: findings.map((finding) => finding.id),
+      findingIds,
     });
 
     if (!deliveryResult.ok || !deliveryResult.data[0]) {
@@ -133,12 +161,19 @@ export async function runDueEmailNotifications({
     }
 
     const delivery = deliveryResult.data[0];
-    const sendResult = await sendOpportunityDigest({ subscriber, search, subscription, findings, subject });
+    const sendResult = await sendGroupedOpportunityDigest({ subscriber, items, subject });
 
     if (sendResult.ok) {
       sent += 1;
       await updateNotificationDelivery({ id: delivery.id, status: "sent", resendEmailId: sendResult.resendEmailId ?? null });
-      await updateKeywordSubscription({ id: subscription.id, lastNotifiedAt: findings[findings.length - 1]?.created_at ?? new Date().toISOString() });
+      await Promise.all(
+        items.map((item) =>
+          updateKeywordSubscription({
+            id: item.subscription.id,
+            lastNotifiedAt: latestFinding(item.findings)?.created_at ?? new Date().toISOString(),
+          }),
+        ),
+      );
     } else {
       failed += 1;
       const error = sendResult.error ?? "Email could not be sent.";
@@ -155,7 +190,7 @@ export async function runDueEmailNotifications({
     skipped,
     failed,
     errors,
-    message: `Email notifications checked ${subscriptions.length} subscriptions, sent ${sent}, skipped ${skipped}, failed ${failed}.`,
+    message: `Email notifications checked ${subscriptions.length} subscriptions, sent ${sent} grouped ${sent === 1 ? "email" : "emails"}, skipped ${skipped}, failed ${failed}.`,
   };
 }
 
@@ -208,41 +243,55 @@ export async function sendTestEmailToSubscriber(subscriberId: string): Promise<E
   return result;
 }
 
-async function sendOpportunityDigest({
+async function sendGroupedOpportunityDigest({
   subscriber,
-  search,
-  subscription,
-  findings,
+  items,
   subject,
 }: {
   subscriber: EmailSubscriberRecord;
-  search: SavedSearchRecord;
-  subscription: KeywordSubscriptionRecord;
-  findings: MonitorFindingRecord[];
+  items: PreparedSubscriptionDigest[];
   subject: string;
 }): Promise<EmailSendResult> {
+  const totalFindings = items.reduce((total, item) => total + item.findings.length, 0);
+  const visibleItems = items.map((item) => ({ ...item, findings: item.findings.slice(0, 12), totalFindings: item.findings.length }));
+  const visibleFindingsCount = visibleItems.reduce((total, item) => total + item.findings.length, 0);
   const bodyHtml = `
     <p style="margin:0 0 16px;color:#475569;font-size:15px;line-height:1.5">
-      ${escapeHtml(findings.length.toString())} monitored ${findings.length === 1 ? "opportunity" : "opportunities"} matched <strong>${escapeHtml(search.query)}</strong>.
+      ${escapeHtml(totalFindings.toString())} monitored ${totalFindings === 1 ? "opportunity" : "opportunities"} matched ${escapeHtml(items.length.toString())} ${items.length === 1 ? "keyword" : "keywords"}.
     </p>
-    ${findings
-      .slice(0, 20)
+    ${visibleItems
       .map(
-        (finding) => `
-          <div style="border:1px solid #d7e2ef;border-radius:8px;padding:14px;margin:0 0 12px;background:#f8fafc">
-            <div style="margin:0 0 6px;font-size:12px;font-weight:700;color:#0f766e;text-transform:uppercase;letter-spacing:.04em">${escapeHtml(finding.finding_type)}</div>
-            <h2 style="margin:0 0 8px;font-size:17px;line-height:1.35;color:#0f172a">${escapeHtml(finding.title)}</h2>
-            <p style="margin:0 0 10px;color:#64748b;font-size:14px;line-height:1.45">
-              ${escapeHtml([finding.source_name, finding.buyer, finding.new_deadline ? `Due ${finding.new_deadline}` : null].filter(Boolean).join(" · "))}
-            </p>
-            <a href="${escapeAttribute(finding.opportunity_url)}" style="display:inline-block;background:#0f172a;color:#ffffff;text-decoration:none;border-radius:6px;padding:8px 11px;font-size:14px;font-weight:700">Open opportunity</a>
+        (item) => `
+          <div style="margin:0 0 18px">
+            <h2 style="margin:0 0 8px;font-size:17px;line-height:1.35;color:#0f172a">${escapeHtml(item.search.query)}</h2>
+            ${item.findings
+              .map(
+                (finding) => `
+                  <div style="border:1px solid #d7e2ef;border-radius:8px;padding:14px;margin:0 0 12px;background:#f8fafc">
+                    <div style="margin:0 0 6px;font-size:12px;font-weight:700;color:#0f766e;text-transform:uppercase;letter-spacing:.04em">${escapeHtml(finding.finding_type)}</div>
+                    <h3 style="margin:0 0 8px;font-size:16px;line-height:1.35;color:#0f172a">${escapeHtml(finding.title)}</h3>
+                    <p style="margin:0 0 10px;color:#64748b;font-size:14px;line-height:1.45">
+                      ${escapeHtml([finding.source_name, finding.buyer, finding.new_deadline ? `Due ${finding.new_deadline}` : null].filter(Boolean).join(" · "))}
+                    </p>
+                    <a href="${escapeAttribute(finding.opportunity_url)}" style="display:inline-block;background:#0f172a;color:#ffffff;text-decoration:none;border-radius:6px;padding:8px 11px;font-size:14px;font-weight:700">Open opportunity</a>
+                  </div>
+                `,
+              )
+              .join("")}
+            ${
+              item.findings.length < item.totalFindings
+                ? `<p style="margin:0 0 10px;color:#64748b;font-size:13px">Open the monitor dashboard for more matches.</p>`
+                : ""
+            }
           </div>
         `,
       )
       .join("")}
-    <p style="margin:18px 0 0;color:#64748b;font-size:13px;line-height:1.5">
-      Frequency: ${escapeHtml(subscription.frequency)}.
-    </p>
+    ${
+      visibleFindingsCount < totalFindings
+        ? `<p style="margin:18px 0 0;color:#64748b;font-size:13px;line-height:1.5">Showing ${escapeHtml(visibleFindingsCount.toString())} of ${escapeHtml(totalFindings.toString())} matches. Open the monitor dashboard to review the rest.</p>`
+        : ""
+    }
   `;
 
   const html = baseEmailShell({
@@ -256,8 +305,10 @@ async function sendOpportunityDigest({
     to: subscriber.email,
     subject,
     html,
-    text: findings.map((finding) => `${finding.title}\n${finding.opportunity_url}`).join("\n\n"),
-    idempotencyKey: digestIdempotencyKey(subscriber.id, search.id, findings),
+    text: items
+      .map((item) => [`${item.search.query}:`, ...item.findings.map((finding) => `${finding.title}\n${finding.opportunity_url}`)].join("\n\n"))
+      .join("\n\n---\n\n"),
+    idempotencyKey: groupedDigestIdempotencyKey(subscriber.id, items),
   });
 }
 
@@ -347,11 +398,47 @@ function digestSubject(search: SavedSearchRecord, findings: MonitorFindingRecord
   return `${parts.join(" · ")} for "${search.query}"`;
 }
 
-function digestIdempotencyKey(subscriberId: string, searchId: string, findings: MonitorFindingRecord[]) {
+function groupedDigestSubject(items: PreparedSubscriptionDigest[]) {
+  const findings = items.flatMap((item) => item.findings);
+  const changed = findings.filter((finding) => finding.finding_type === "changed").length;
+  const fresh = findings.length - changed;
+  const keywordCount = items.length;
+  const parts = [`${findings.length} ${findings.length === 1 ? "opportunity" : "opportunities"}`];
+  if (fresh > 0) {
+    parts.push(`${fresh} new`);
+  }
+  if (changed > 0) {
+    parts.push(`${changed} changed`);
+  }
+  parts.push(`${keywordCount} ${keywordCount === 1 ? "keyword" : "keywords"}`);
+  return parts.join(" · ");
+}
+
+function groupedDeliveryType(items: PreparedSubscriptionDigest[]) {
+  if (items.some((item) => item.subscription.frequency === "instant")) {
+    return "instant";
+  }
+
+  if (items.some((item) => item.subscription.frequency === "daily")) {
+    return "daily";
+  }
+
+  return "weekly";
+}
+
+function groupedDigestIdempotencyKey(subscriberId: string, items: PreparedSubscriptionDigest[]) {
   const hash = createHash("sha256")
-    .update([subscriberId, searchId, ...findings.map((finding) => finding.id)].join(":"))
+    .update([subscriberId, ...items.map((item) => item.subscription.id), ...items.flatMap((item) => item.findings.map((finding) => finding.id))].join(":"))
     .digest("hex");
   return `gov-search-${hash}`;
+}
+
+function latestFinding(findings: MonitorFindingRecord[]) {
+  return [...findings].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? null;
+}
+
+function unique(values: string[]) {
+  return [...new Set(values)];
 }
 
 function baseEmailShell({ title, preview, bodyHtml, unsubscribeUrl }: { title: string; preview: string; bodyHtml: string; unsubscribeUrl: string }) {

@@ -3,18 +3,23 @@ import { getProcurementSources } from "@/lib/gov-contracts";
 import { recordRuntimeSearchRun } from "@/lib/search-observability";
 import { searchConnectedSources } from "@/lib/source-adapters";
 import {
+  archiveMonitorSearch,
   completeMonitorRun,
   createMonitorFindings,
   createMonitorRun,
+  deleteKeywordSubscription,
   failStaleMonitorRuns,
   listKeywordSubscriptions,
   listMonitorSearches,
   listSeenOpportunities,
+  moveKeywordSubscription,
   recordSourceHealth,
   recordSearchRun,
+  updateKeywordSubscription,
   updateSearchAfterMonitor,
   upsertMonitorSearch,
   upsertSeenOpportunities,
+  type KeywordSubscriptionRecord,
   type MonitorFindingRecord,
   type MonitorRunRecord,
   type SavedSearchRecord,
@@ -44,6 +49,112 @@ export async function ensureDefaultMonitorSearches() {
   await upsertMonitorSearch({ query: "leadership training", state: "All", level: "All", frequency: "daily", enabled: true });
   await upsertMonitorSearch({ query: "management training", state: "TX", level: "All", frequency: "daily", enabled: true });
   return listMonitorSearches();
+}
+
+export async function cleanupDuplicateMonitorSearches() {
+  const [searchesResult, subscriptionsResult] = await Promise.all([listMonitorSearches(), listKeywordSubscriptions()]);
+  if (!searchesResult.ok || !subscriptionsResult.ok) {
+    return {
+      ok: false as const,
+      configured: searchesResult.configured && subscriptionsResult.configured,
+      duplicateGroups: 0,
+      archivedSearches: 0,
+      movedSubscriptions: 0,
+      deletedSubscriptions: 0,
+      errors: [searchesResult.ok ? undefined : searchesResult.error, subscriptionsResult.ok ? undefined : subscriptionsResult.error].filter(Boolean) as string[],
+      message: "Duplicate monitor cleanup could not load monitor data.",
+    };
+  }
+
+  const groups = new Map<string, SavedSearchRecord[]>();
+  for (const search of searchesResult.data) {
+    const key = monitorSearchKey(search);
+    groups.set(key, [...(groups.get(key) ?? []), search]);
+  }
+
+  const subscriptions = [...subscriptionsResult.data];
+  let duplicateGroups = 0;
+  let archivedSearches = 0;
+  let movedSubscriptions = 0;
+  let deletedSubscriptions = 0;
+  const errors: string[] = [];
+
+  for (const group of groups.values()) {
+    if (group.length < 2) {
+      continue;
+    }
+
+    duplicateGroups += 1;
+    const [canonical, ...duplicates] = [...group].sort(compareCanonicalMonitorSearch);
+    for (const duplicate of duplicates) {
+      const duplicateSubscriptions = subscriptions.filter((subscription) => subscription.saved_search_id === duplicate.id);
+      for (const subscription of duplicateSubscriptions) {
+        const canonicalSubscription = subscriptions.find(
+          (candidate) => candidate.id !== subscription.id && candidate.subscriber_id === subscription.subscriber_id && candidate.saved_search_id === canonical.id,
+        );
+
+        if (canonicalSubscription) {
+          const mergeResult = await updateKeywordSubscription({
+            id: canonicalSubscription.id,
+            frequency: moreFrequentNotification(canonicalSubscription.frequency, subscription.frequency),
+            isActive: canonicalSubscription.is_active || subscription.is_active,
+            lastNotifiedAt: latestIso(canonicalSubscription.last_notified_at, subscription.last_notified_at),
+          });
+          if (!mergeResult.ok) {
+            errors.push(mergeResult.error);
+            continue;
+          }
+
+          const deleteResult = await deleteKeywordSubscription(subscription.id);
+          if (!deleteResult.ok) {
+            errors.push(deleteResult.error);
+            continue;
+          }
+
+          deletedSubscriptions += 1;
+          const index = subscriptions.findIndex((item) => item.id === subscription.id);
+          if (index >= 0) {
+            subscriptions.splice(index, 1);
+          }
+          Object.assign(canonicalSubscription, {
+            frequency: moreFrequentNotification(canonicalSubscription.frequency, subscription.frequency),
+            is_active: canonicalSubscription.is_active || subscription.is_active,
+            last_notified_at: latestIso(canonicalSubscription.last_notified_at, subscription.last_notified_at),
+          });
+        } else {
+          const moveResult = await moveKeywordSubscription({ id: subscription.id, savedSearchId: canonical.id });
+          if (!moveResult.ok) {
+            errors.push(moveResult.error);
+            continue;
+          }
+
+          movedSubscriptions += 1;
+          subscription.saved_search_id = canonical.id;
+        }
+      }
+
+      const archiveResult = await archiveMonitorSearch(duplicate.id);
+      if (archiveResult.ok) {
+        archivedSearches += 1;
+      } else {
+        errors.push(archiveResult.error);
+      }
+    }
+  }
+
+  return {
+    ok: errors.length === 0,
+    configured: true,
+    duplicateGroups,
+    archivedSearches,
+    movedSubscriptions,
+    deletedSubscriptions,
+    errors,
+    message:
+      duplicateGroups === 0
+        ? "No duplicate monitor searches found."
+        : `Cleaned ${duplicateGroups} duplicate group${duplicateGroups === 1 ? "" : "s"}, archived ${archivedSearches} duplicate monitor${archivedSearches === 1 ? "" : "s"}, moved ${movedSubscriptions} alert${movedSubscriptions === 1 ? "" : "s"}, and removed ${deletedSubscriptions} duplicate alert${deletedSubscriptions === 1 ? "" : "s"}.`,
+  };
 }
 
 export async function runMonitorSearch(
@@ -363,6 +474,49 @@ function compareDueSearchPriority(a: SavedSearchRecord, b: SavedSearchRecord, su
   }
 
   return parseDateValue(a.created_at) - parseDateValue(b.created_at);
+}
+
+function monitorSearchKey(search: SavedSearchRecord) {
+  return [search.query.trim().toLowerCase().replace(/\s+/g, " "), search.state_filter, search.level_filter].join("::");
+}
+
+function compareCanonicalMonitorSearch(a: SavedSearchRecord, b: SavedSearchRecord) {
+  const enabledPriority = Number(b.monitor_enabled) - Number(a.monitor_enabled);
+  if (enabledPriority !== 0) {
+    return enabledPriority;
+  }
+
+  const checkedPriority = parseDateValue(b.last_checked_at) - parseDateValue(a.last_checked_at);
+  if (checkedPriority !== 0) {
+    return checkedPriority;
+  }
+
+  return parseDateValue(a.created_at) - parseDateValue(b.created_at);
+}
+
+function moreFrequentNotification(
+  a: KeywordSubscriptionRecord["frequency"],
+  b: KeywordSubscriptionRecord["frequency"],
+): KeywordSubscriptionRecord["frequency"] {
+  const rank: Record<KeywordSubscriptionRecord["frequency"], number> = {
+    instant: 0,
+    daily: 1,
+    weekly: 2,
+  };
+
+  return rank[a] <= rank[b] ? a : b;
+}
+
+function latestIso(a: string | null, b: string | null) {
+  if (!a) {
+    return b;
+  }
+
+  if (!b) {
+    return a;
+  }
+
+  return Date.parse(a) >= Date.parse(b) ? a : b;
 }
 
 function isSearchDue(search: SavedSearchRecord) {

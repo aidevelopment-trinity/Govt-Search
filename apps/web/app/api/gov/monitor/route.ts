@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { cleanupStaleMonitorRuns, ensureDefaultMonitorSearches, runDueMonitorSearches, runMonitorSearch } from "@/lib/monitoring";
+import { cleanupDuplicateMonitorSearches, cleanupStaleMonitorRuns, ensureDefaultMonitorSearches, runDueMonitorSearches, runMonitorSearch } from "@/lib/monitoring";
 import { listMonitorFindings, listMonitorRuns, listMonitorSearches, updateMonitorSearch, upsertMonitorSearch } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
@@ -84,6 +84,11 @@ export async function POST(request: Request) {
 
   if (body.action === "cleanup-stale-runs") {
     const result = await cleanupStaleMonitorRuns();
+    return jsonNoStore(result, { status: result.ok || result.configured === false ? 200 : 502 });
+  }
+
+  if (body.action === "cleanup-duplicates") {
+    const result = await cleanupDuplicateMonitorSearches();
     return jsonNoStore(result, { status: result.ok || result.configured === false ? 200 : 502 });
   }
 

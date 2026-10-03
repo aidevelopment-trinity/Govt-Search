@@ -381,6 +381,18 @@ export async function updateMonitorSearch(input: { id: string; enabled?: boolean
   });
 }
 
+export async function archiveMonitorSearch(id: string) {
+  return supabaseRequest<SavedSearchRecord[]>("saved_searches", {
+    method: "PATCH",
+    query: `?id=eq.${encodeURIComponent(id)}`,
+    body: {
+      monitor_managed: false,
+      monitor_enabled: false,
+      monitor_frequency: "manual",
+    },
+  });
+}
+
 export async function createMonitorRun(input: {
   savedSearchId?: string | null;
   query: string;
@@ -910,6 +922,16 @@ export async function updateKeywordSubscription(input: {
     method: "PATCH",
     query: `?id=eq.${encodeURIComponent(input.id)}`,
     body: updates,
+  });
+}
+
+export async function moveKeywordSubscription(input: { id: string; savedSearchId: string }) {
+  return supabaseRequest<KeywordSubscriptionRecord[]>("keyword_subscriptions", {
+    method: "PATCH",
+    query: `?id=eq.${encodeURIComponent(input.id)}`,
+    body: {
+      saved_search_id: input.savedSearchId,
+    },
   });
 }
 

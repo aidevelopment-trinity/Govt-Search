@@ -11,6 +11,6 @@ export async function GET(request: Request) {
     return auth.response;
   }
 
-  const result = await runDueEmailNotifications({ limitSubscriptions: 25 });
+  const result = await runDueEmailNotifications({ limitSubscriptions: 100 });
   return NextResponse.json(result, { status: result.ok || result.configured === false ? 200 : 502 });
 }
