@@ -8,7 +8,7 @@ export function authorizeCronRequest(request: Request) {
   if (configuredSecrets.length === 0) {
     return {
       ok: false as const,
-      response: NextResponse.json({ ok: false, error: "No cron secret is configured." }, { status: 503 }),
+      response: NextResponse.json({ ok: false, error: "No cron secret is configured. Set CRON_SECRET or CRON_BACKUP_SECRET." }, { status: 503 }),
     };
   }
 
