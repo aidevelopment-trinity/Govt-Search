@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getCronSecretStatus } from "@/lib/cron-auth";
 import { isEmailConfigured } from "@/lib/email-notifications";
 import { isGoogleDocsConfigured } from "@/lib/google-docs";
 import { getSamUsageSummary, listRuntimeSearchRuns } from "@/lib/search-observability";
@@ -25,7 +26,7 @@ export async function GET() {
   const googleDocsConfigured = isGoogleDocsConfigured();
   const googleDriveFolderConfigured = Boolean(process.env.GOOGLE_DRIVE_FOLDER_ID);
   const googleReviewerConfigured = Boolean(process.env.GOOGLE_DOC_REVIEWER_EMAIL);
-  const cronSecretConfigured = Boolean(process.env.CRON_SECRET);
+  const cronSecrets = getCronSecretStatus();
   const emailProviderConfigured = isEmailConfigured();
 
   const health = {
@@ -50,7 +51,8 @@ export async function GET() {
       monitoring: {
         configured: false,
         schemaReady: false,
-        cronSecretConfigured,
+        cronSecretConfigured: cronSecrets.cronSecretConfigured,
+        cronBackupSecretConfigured: cronSecrets.cronBackupSecretConfigured,
         status: "checking",
         message: "Checking monitoring schema and scheduled run configuration.",
       },
@@ -187,12 +189,14 @@ export async function GET() {
     health.services.supabase.message = supabaseOk
       ? "Supabase is connected and core tables are readable."
       : "Supabase is configured, but one or more tables could not be read.";
-    health.services.monitoring.configured = monitorSchemaOk && cronSecretConfigured;
+    health.services.monitoring.configured = monitorSchemaOk && cronSecrets.anyCronSecretConfigured;
     health.services.monitoring.schemaReady = monitorSchemaOk;
-    health.services.monitoring.status = monitorSchemaOk ? (cronSecretConfigured ? "ready" : "missing_cron_secret") : "missing_schema";
+    health.services.monitoring.status = monitorSchemaOk ? (cronSecrets.anyCronSecretConfigured ? "ready" : "missing_cron_secret") : "missing_schema";
     health.services.monitoring.message = monitorSchemaOk
-      ? cronSecretConfigured
-        ? "Monitoring schema and cron secret are ready."
+      ? cronSecrets.anyCronSecretConfigured
+        ? cronSecrets.cronBackupSecretConfigured
+          ? "Monitoring schema, Vercel cron, and GitHub backup cron secret are ready."
+          : "Monitoring schema and Vercel cron secret are ready. Add CRON_BACKUP_SECRET for the GitHub backup workflow."
         : "Monitoring schema is ready. Add CRON_SECRET in Vercel so scheduled runs can execute."
       : "Run the monitoring SQL migration in Supabase.";
     health.services.emailNotifications.configured = emailSchemaOk && emailProviderConfigured;
@@ -259,6 +263,10 @@ export async function GET() {
 
   if (!health.services.monitoring.cronSecretConfigured) {
     health.nextSteps.push("Add CRON_SECRET in Vercel production environment variables.");
+  }
+
+  if (!health.services.monitoring.cronBackupSecretConfigured) {
+    health.nextSteps.push("Add CRON_BACKUP_SECRET in Vercel and GitHub repository secrets for backup scheduled runs.");
   }
 
   if (!health.services.emailNotifications.schemaReady) {

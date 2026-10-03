@@ -15,14 +15,17 @@ jobs:
         env:
           APP_URL: ${{ vars.GOV_CONTRACT_FINDER_URL || 'https://govt-search-web.vercel.app' }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          CRON_BACKUP_SECRET: ${{ secrets.CRON_BACKUP_SECRET }}
         run: |
-          if [ -z "$CRON_SECRET" ]; then
-            echo "::warning::Missing repository secret CRON_SECRET; skipping monitor run."
-            exit 0
+          AUTH_SECRET="${CRON_BACKUP_SECRET:-$CRON_SECRET}"
+
+          if [ -z "$AUTH_SECRET" ]; then
+            echo "::error::Missing repository secret CRON_BACKUP_SECRET or CRON_SECRET; monitor run cannot authenticate."
+            exit 1
           fi
 
           curl --fail --show-error --silent --max-time 70 --retry 2 \
-            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Authorization: Bearer $AUTH_SECRET" \
             "$APP_URL/api/cron/gov-monitor?maxRuns=3"
 
   email-digest:
@@ -33,12 +36,15 @@ jobs:
         env:
           APP_URL: ${{ vars.GOV_CONTRACT_FINDER_URL || 'https://govt-search-web.vercel.app' }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          CRON_BACKUP_SECRET: ${{ secrets.CRON_BACKUP_SECRET }}
         run: |
-          if [ -z "$CRON_SECRET" ]; then
-            echo "::warning::Missing repository secret CRON_SECRET; skipping email digest."
-            exit 0
+          AUTH_SECRET="${CRON_BACKUP_SECRET:-$CRON_SECRET}"
+
+          if [ -z "$AUTH_SECRET" ]; then
+            echo "::error::Missing repository secret CRON_BACKUP_SECRET or CRON_SECRET; email digest cannot authenticate."
+            exit 1
           fi
 
           curl --fail --show-error --silent --max-time 70 --retry 2 \
-            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Authorization: Bearer $AUTH_SECRET" \
             "$APP_URL/api/cron/email-digest"
