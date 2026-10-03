@@ -78,6 +78,63 @@ export async function cleanupDuplicateMonitorSearches() {
   let movedSubscriptions = 0;
   let deletedSubscriptions = 0;
   const errors: string[] = [];
+  const archivedSearchIds = new Set<string>();
+
+  async function mergeAndArchiveDuplicate(canonical: SavedSearchRecord, duplicate: SavedSearchRecord) {
+    const duplicateSubscriptions = subscriptions.filter((subscription) => subscription.saved_search_id === duplicate.id);
+    for (const subscription of duplicateSubscriptions) {
+      const canonicalSubscription = subscriptions.find(
+        (candidate) => candidate.id !== subscription.id && candidate.subscriber_id === subscription.subscriber_id && candidate.saved_search_id === canonical.id,
+      );
+
+      if (canonicalSubscription) {
+        const mergeResult = await updateKeywordSubscription({
+          id: canonicalSubscription.id,
+          frequency: moreFrequentNotification(canonicalSubscription.frequency, subscription.frequency),
+          isActive: canonicalSubscription.is_active || subscription.is_active,
+          lastNotifiedAt: latestIso(canonicalSubscription.last_notified_at, subscription.last_notified_at),
+        });
+        if (!mergeResult.ok) {
+          errors.push(mergeResult.error);
+          continue;
+        }
+
+        const deleteResult = await deleteKeywordSubscription(subscription.id);
+        if (!deleteResult.ok) {
+          errors.push(deleteResult.error);
+          continue;
+        }
+
+        deletedSubscriptions += 1;
+        const index = subscriptions.findIndex((item) => item.id === subscription.id);
+        if (index >= 0) {
+          subscriptions.splice(index, 1);
+        }
+        Object.assign(canonicalSubscription, {
+          frequency: moreFrequentNotification(canonicalSubscription.frequency, subscription.frequency),
+          is_active: canonicalSubscription.is_active || subscription.is_active,
+          last_notified_at: latestIso(canonicalSubscription.last_notified_at, subscription.last_notified_at),
+        });
+      } else {
+        const moveResult = await moveKeywordSubscription({ id: subscription.id, savedSearchId: canonical.id });
+        if (!moveResult.ok) {
+          errors.push(moveResult.error);
+          continue;
+        }
+
+        movedSubscriptions += 1;
+        subscription.saved_search_id = canonical.id;
+      }
+    }
+
+    const archiveResult = await archiveMonitorSearch(duplicate.id);
+    if (archiveResult.ok) {
+      archivedSearches += 1;
+      archivedSearchIds.add(duplicate.id);
+    } else {
+      errors.push(archiveResult.error);
+    }
+  }
 
   for (const group of groups.values()) {
     if (group.length < 2) {
@@ -87,58 +144,34 @@ export async function cleanupDuplicateMonitorSearches() {
     duplicateGroups += 1;
     const [canonical, ...duplicates] = [...group].sort(compareCanonicalMonitorSearch);
     for (const duplicate of duplicates) {
-      const duplicateSubscriptions = subscriptions.filter((subscription) => subscription.saved_search_id === duplicate.id);
-      for (const subscription of duplicateSubscriptions) {
-        const canonicalSubscription = subscriptions.find(
-          (candidate) => candidate.id !== subscription.id && candidate.subscriber_id === subscription.subscriber_id && candidate.saved_search_id === canonical.id,
-        );
+      await mergeAndArchiveDuplicate(canonical, duplicate);
+    }
+  }
 
-        if (canonicalSubscription) {
-          const mergeResult = await updateKeywordSubscription({
-            id: canonicalSubscription.id,
-            frequency: moreFrequentNotification(canonicalSubscription.frequency, subscription.frequency),
-            isActive: canonicalSubscription.is_active || subscription.is_active,
-            lastNotifiedAt: latestIso(canonicalSubscription.last_notified_at, subscription.last_notified_at),
-          });
-          if (!mergeResult.ok) {
-            errors.push(mergeResult.error);
-            continue;
-          }
+  const broadGroups = new Map<string, SavedSearchRecord[]>();
+  for (const search of searchesResult.data) {
+    if (archivedSearchIds.has(search.id)) {
+      continue;
+    }
 
-          const deleteResult = await deleteKeywordSubscription(subscription.id);
-          if (!deleteResult.ok) {
-            errors.push(deleteResult.error);
-            continue;
-          }
+    const key = search.query.trim().toLowerCase().replace(/\s+/g, " ");
+    broadGroups.set(key, [...(broadGroups.get(key) ?? []), search]);
+  }
 
-          deletedSubscriptions += 1;
-          const index = subscriptions.findIndex((item) => item.id === subscription.id);
-          if (index >= 0) {
-            subscriptions.splice(index, 1);
-          }
-          Object.assign(canonicalSubscription, {
-            frequency: moreFrequentNotification(canonicalSubscription.frequency, subscription.frequency),
-            is_active: canonicalSubscription.is_active || subscription.is_active,
-            last_notified_at: latestIso(canonicalSubscription.last_notified_at, subscription.last_notified_at),
-          });
-        } else {
-          const moveResult = await moveKeywordSubscription({ id: subscription.id, savedSearchId: canonical.id });
-          if (!moveResult.ok) {
-            errors.push(moveResult.error);
-            continue;
-          }
+  for (const group of broadGroups.values()) {
+    const canonical = group.filter((search) => search.state_filter === "All" && search.level_filter === "All").sort(compareCanonicalMonitorSearch)[0];
+    if (!canonical) {
+      continue;
+    }
 
-          movedSubscriptions += 1;
-          subscription.saved_search_id = canonical.id;
-        }
-      }
+    const duplicates = group.filter((search) => search.id !== canonical.id);
+    if (duplicates.length === 0) {
+      continue;
+    }
 
-      const archiveResult = await archiveMonitorSearch(duplicate.id);
-      if (archiveResult.ok) {
-        archivedSearches += 1;
-      } else {
-        errors.push(archiveResult.error);
-      }
+    duplicateGroups += 1;
+    for (const duplicate of duplicates) {
+      await mergeAndArchiveDuplicate(canonical, duplicate);
     }
   }
 
